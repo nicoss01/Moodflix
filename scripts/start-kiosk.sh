@@ -44,29 +44,10 @@ CHROMIUM_FLAGS=(
   --user-data-dir="$HOME/.config/moodflix-chromium"
 )
 
-# Normalise automatiquement la taille de l'interface sur une base 1920x1080.
-# MOODFLIX_UI_SCALE permet de forcer une valeur (par exemple 1.5) si nécessaire.
-UI_SCALE="${MOODFLIX_UI_SCALE:-}"
-if [[ -z "$UI_SCALE" ]]; then
-  SCREEN_WIDTH=""
-  for STATUS_FILE in /sys/class/drm/card*-*/status; do
-    [[ -r "$STATUS_FILE" && "$(<"$STATUS_FILE")" == "connected" ]] || continue
-    MODE_FILE="${STATUS_FILE%/status}/modes"
-    [[ -r "$MODE_FILE" ]] || continue
-    IFS=x read -r SCREEN_WIDTH _ < "$MODE_FILE"
-    [[ "$SCREEN_WIDTH" =~ ^[0-9]+$ ]] && break
-    SCREEN_WIDTH=""
-  done
-  if [[ "${SCREEN_WIDTH:-0}" -ge 3500 ]]; then
-    UI_SCALE="2"
-  elif [[ "${SCREEN_WIDTH:-0}" -ge 2500 ]]; then
-    UI_SCALE="1.333333"
-  else
-    UI_SCALE="1"
-  fi
-fi
-CHROMIUM_FLAGS+=(--high-dpi-support=1 --force-device-scale-factor="$UI_SCALE")
-echo "MoodFlix : facteur d'interface ${UI_SCALE} (${SCREEN_WIDTH:-résolution non détectée}px)"
+# Cage/Wayland doit toujours recevoir une surface Chromium à la résolution native.
+# Un facteur supérieur à 1 réduit la surface du navigateur (quart d'écran en 4K).
+# L'agrandissement 1440p/4K est donc géré par les media queries de l'interface.
+CHROMIUM_FLAGS+=(--high-dpi-support=1 --force-device-scale-factor=1)
 
 if [[ -n "${WAYLAND_DISPLAY:-}" ]]; then
   CHROMIUM_FLAGS+=(--ozone-platform=wayland --enable-features=UseOzonePlatform)
