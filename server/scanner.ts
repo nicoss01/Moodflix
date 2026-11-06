@@ -3,9 +3,12 @@ import path from 'node:path'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { db, getSetting } from './db.js'
+import { lookupOmdb } from './omdb.js'
 
 const execFileAsync = promisify(execFile)
 const VIDEO_EXTENSIONS = new Set(['.mp4', '.mkv', '.avi', '.mov', '.m4v', '.webm', '.ts'])
+const metadataAttempts = new Map<string, number>()
+const METADATA_RETRY_MS = 6 * 60 * 60 * 1000
 
 function walk(dir: string, files: string[] = []): string[] {
   if (!fs.existsSync(dir)) return files
@@ -39,7 +42,20 @@ export async function scanLibraries(extraDirs: string[] = []) {
   db.prepare('UPDATE media SET available=0 WHERE path IS NOT NULL').run()
   const upsert = db.prepare(`INSERT INTO media(path,title,kind,series_title,season,episode,year,duration,genres,overview,available)
     VALUES(@path,@title,@kind,@seriesTitle,@season,@episode,@year,@duration,'[]','',1)
-    ON CONFLICT(path) DO UPDATE SET available=1,title=excluded.title,duration=excluded.duration`)
-  for (const file of files) upsert.run({ path: file, ...parseMediaName(file), duration: await duration(file) })
-  return { directories, found: files.length }
+    ON CONFLICT(path) DO UPDATE SET available=1,title=CASE WHEN media.overview='' THEN excluded.title ELSE media.title END,duration=excluded.duration`)
+  const findMedia = db.prepare('SELECT overview,poster FROM media WHERE path=?')
+  const enrich = db.prepare(`UPDATE media SET title=CASE WHEN overview='' THEN @title ELSE title END,series_title=COALESCE(@seriesTitle,series_title),year=COALESCE(@year,year),age_rating=@ageRating,genres=@genres,overview=CASE WHEN overview='' THEN @overview ELSE overview END,poster=CASE WHEN poster IS NULL OR poster='' THEN @poster ELSE poster END WHERE path=@path`)
+  let enriched = 0
+  for (const file of files) {
+    const identity = parseMediaName(file)
+    upsert.run({ path: file, ...identity, duration: await duration(file) })
+    const current = findMedia.get(file) as { overview:string;poster:string|null }|undefined
+    const lastAttempt = metadataAttempts.get(file) || 0
+    if (getSetting('OMDB_API_KEY') && (!current?.overview || !current?.poster) && Date.now()-lastAttempt >= METADATA_RETRY_MS) {
+      metadataAttempts.set(file, Date.now())
+      const metadata = await lookupOmdb(identity)
+      if (metadata) { enrich.run({ path:file, ...metadata, genres:JSON.stringify(metadata.genres) }); enriched++ }
+    }
+  }
+  return { directories, found: files.length, enriched }
 }

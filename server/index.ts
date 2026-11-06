@@ -11,6 +11,7 @@ import { scanLibraries } from './scanner.js'
 import { addTorrent, listTorrents, searchTorznab, testTorznab } from './torrents.js'
 import { remoteEvents, startCecBridge } from './cec.js'
 import { applyUpdate, checkForUpdate, isUpdateRunning } from './updater.js'
+import { testOmdb } from './omdb.js'
 
 const app = express()
 const port = Number(process.env.PORT || 4242)
@@ -135,7 +136,7 @@ app.post('/api/torrents/search/remote', (req, res) => {
   res.json({ ok: true })
 })
 
-const publicSettings = ['MEDIA_DIRS','DOWNLOAD_DIR','TMDB_API_KEY','QBITTORRENT_URL','QBITTORRENT_USER','QBITTORRENT_PASSWORD','TORZNAB_URL','TORZNAB_API_KEY','DOWNLOAD_LIMIT','UPLOAD_LIMIT']
+const publicSettings = ['MEDIA_DIRS','DOWNLOAD_DIR','TMDB_API_KEY','OMDB_API_KEY','QBITTORRENT_URL','QBITTORRENT_USER','QBITTORRENT_PASSWORD','TORZNAB_URL','TORZNAB_API_KEY','DOWNLOAD_LIMIT','UPLOAD_LIMIT']
 app.get('/api/settings', (_req, res) => res.json(Object.fromEntries(publicSettings.map(k => [k, getSetting(k)]))))
 app.put('/api/settings', (req, res) => { for (const key of publicSettings) if (typeof req.body[key] === 'string') setSetting(key, req.body[key]); res.json({ ok: true }) })
 app.post('/api/settings/torznab/test', async (req, res, next) => {
@@ -143,6 +144,10 @@ app.post('/api/settings/torznab/test', async (req, res, next) => {
     const data = z.object({ url: z.string().trim().optional(), apiKey: z.string().optional() }).parse(req.body)
     res.json(await testTorznab(data.url, data.apiKey))
   } catch (e) { next(e) }
+})
+app.post('/api/settings/omdb/test', async (req, res, next) => {
+  try { res.json(await testOmdb(z.object({ apiKey:z.string() }).parse(req.body).apiKey)) }
+  catch (e) { next(e) }
 })
 app.get('/api/update/check', async (_req, res, next) => { try { res.json(await checkForUpdate()) } catch (e) { next(e) } })
 app.get('/api/update/state', (_req, res) => res.json({ updating: isUpdateRunning() }))

@@ -59,9 +59,10 @@ Depuis l’écran Paramètres, scannez le QR code puis renseignez :
 - `MEDIA_DIRS` : dossiers séparés par des virgules, par exemple `/srv/media,/media,/mnt` ;
 - l’adresse et les identifiants de l’interface Web qBittorrent ;
 - l’URL API Newznab/Torznab complète et la clé de votre indexeur (l’URL doit renvoyer du XML, pas la page d’accueil du site) ;
-- éventuellement une clé TMDB pour l’enrichissement ultérieur des métadonnées.
+- une clé OMDb pour récupérer automatiquement le titre, le résumé, les genres, la classification et l’affiche lors de l’analyse de la bibliothèque ;
+- éventuellement une clé TMDB pour un enrichissement complémentaire ultérieur.
 
-Le bouton **Tester** des réglages contrôle la connexion Torznab, la clé et le format de la réponse avant l’enregistrement. Sur l’écran Torrent, la recherche peut être saisie avec le clavier virtuel ou depuis un téléphone en scannant le QR code ; la requête est alors transmise immédiatement à la télévision.
+Les boutons **Tester** des réglages contrôlent les connexions Torznab et OMDb avant l’enregistrement. Sur l’écran Torrent, la recherche peut être saisie avec le clavier virtuel ou depuis un téléphone en scannant le QR code ; la requête est alors transmise immédiatement à la télévision.
 
 Sur Raspberry Pi OS Lite, UDisks et udiskie assurent l'automontage léger des périphériques USB sous `/media`. MoodFlix rescane automatiquement les dossiers configurés toutes les 30 secondes.
 
