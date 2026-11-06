@@ -11,6 +11,7 @@ MoodFlix est un media center personnel conçu pour Raspberry Pi et l’usage sur
 - recherche via une API Torznab compatible Prowlarr ou Jackett ;
 - téléchargement et suivi via qBittorrent (progression, seeds, estimation, partage) ;
 - page de réglages locale et QR code pour l’ouvrir depuis un téléphone ;
+- vérification des nouveaux commits GitHub et mise à jour confirmée depuis les paramètres ;
 - lancement automatique en mode kiosque et pont HDMI-CEC sur Raspberry Pi.
 
 MoodFlix ne fournit aucun contenu ni indexeur. Configurez uniquement des sources et utilisez uniquement des fichiers que vous êtes autorisé à télécharger et à consulter.
@@ -66,6 +67,12 @@ npm run build       # version de production
 sudo systemctl status moodflix moodflix-kiosk moodflix-qbittorrent
 sudo journalctl -u moodflix -u moodflix-kiosk -u moodflix-qbittorrent -f
 ```
+
+## Mises à jour
+
+Dans **Paramètres → Mises à jour**, utilisez **Vérifier**. MoodFlix récupère les références de `origin/main`, compare le commit installé au dernier commit GitHub et affiche la liste des changements. Aucune installation ne démarre sans une seconde confirmation explicite.
+
+La mise à jour automatique exige un historique en avance rapide et un dépôt local sans modification. Après confirmation, MoodFlix exécute la mise à jour Git, réinstalle les dépendances, reconstruit l'interface puis redémarre son service. Une mise à jour divergente ou une erreur de compilation laisse un message d'erreur dans les paramètres au lieu de forcer le redémarrage.
 
 ## Architecture
 

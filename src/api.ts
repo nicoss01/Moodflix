@@ -1,6 +1,7 @@
 export type Profile = { id:number; name:string; avatar:string; color:string; max_age:number; is_admin:number }
 export type Media = { id:number; title:string; kind:'movie'|'series'; series_title?:string; season?:number; episode?:number; year:number; duration:number; age_rating:number; genres:string[]; overview:string; poster?:string; backdrop?:string; path?:string; position?:number }
 export type TorrentResult = { id:string; title:string; link:string; size:number; seeds:number; peers:number; published?:string; source:string }
+export type UpdateStatus = { available:boolean; branch:string; localCommit:string; remoteCommit:string; checkedAt:string; commits:Array<{hash:string;shortHash:string;author:string;date:string;subject:string}> }
 
 async function request<T>(path:string, init?:RequestInit):Promise<T> {
   const response = await fetch(`/api${path}`, { headers: { 'Content-Type':'application/json', ...init?.headers }, ...init })
@@ -28,5 +29,7 @@ export const api = {
   onboarding: () => request<{complete:boolean}>('/onboarding'),
   completeOnboarding: () => request<{complete:boolean}>('/onboarding/complete', { method:'POST' }),
   settings: () => request<Record<string,string>>('/settings'),
-  saveSettings: (settings:Record<string,string>) => request('/settings', { method:'PUT', body:JSON.stringify(settings) })
+  saveSettings: (settings:Record<string,string>) => request('/settings', { method:'PUT', body:JSON.stringify(settings) }),
+  checkUpdate: () => request<UpdateStatus>('/update/check'),
+  applyUpdate: () => request<{ok:boolean;status:UpdateStatus;restarting:boolean}>('/update/apply', { method:'POST', body:JSON.stringify({confirm:true}) })
 }

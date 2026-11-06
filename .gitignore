@@ -3,4 +3,5 @@ dist/
 data/
 .env
 *.log
+*.tsbuildinfo
 .DS_Store

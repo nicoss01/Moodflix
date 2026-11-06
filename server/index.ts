@@ -9,6 +9,7 @@ import { db, getSetting, setSetting } from './db.js'
 import { scanLibraries } from './scanner.js'
 import { addTorrent, listTorrents, searchTorznab } from './torrents.js'
 import { remoteEvents, startCecBridge } from './cec.js'
+import { applyUpdate, checkForUpdate, isUpdateRunning } from './updater.js'
 
 const app = express()
 const port = Number(process.env.PORT || 4242)
@@ -118,6 +119,17 @@ app.post('/api/torrents', async (req, res, next) => { try { const { url } = z.ob
 const publicSettings = ['MEDIA_DIRS','DOWNLOAD_DIR','TMDB_API_KEY','QBITTORRENT_URL','QBITTORRENT_USER','QBITTORRENT_PASSWORD','TORZNAB_URL','TORZNAB_API_KEY','DOWNLOAD_LIMIT','UPLOAD_LIMIT']
 app.get('/api/settings', (_req, res) => res.json(Object.fromEntries(publicSettings.map(k => [k, getSetting(k)]))))
 app.put('/api/settings', (req, res) => { for (const key of publicSettings) if (typeof req.body[key] === 'string') setSetting(key, req.body[key]); res.json({ ok: true }) })
+app.get('/api/update/check', async (_req, res, next) => { try { res.json(await checkForUpdate()) } catch (e) { next(e) } })
+app.get('/api/update/state', (_req, res) => res.json({ updating: isUpdateRunning() }))
+app.post('/api/update/apply', async (req, res, next) => {
+  try {
+    z.object({ confirm: z.literal(true) }).parse(req.body)
+    const status = await applyUpdate()
+    const restarting = status.commits.length > 0
+    res.json({ ok: true, status, restarting })
+    if (restarting) setTimeout(() => process.exit(0), 1200)
+  } catch (e) { next(e) }
+})
 app.get('/api/setup/qr', async (_req, res) => {
   const url = `http://${localIp()}:${port}/settings?onboarding=1`
   res.json({ url, qr: await QRCode.toDataURL(url, { margin: 1, width: 280, color: { dark: '#07111f', light: '#ffffff' } }) })
