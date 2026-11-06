@@ -3,16 +3,18 @@ import cors from 'cors'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { EventEmitter } from 'node:events'
 import QRCode from 'qrcode'
 import { z } from 'zod'
 import { db, getSetting, setSetting } from './db.js'
 import { scanLibraries } from './scanner.js'
-import { addTorrent, listTorrents, searchTorznab } from './torrents.js'
+import { addTorrent, listTorrents, searchTorznab, testTorznab } from './torrents.js'
 import { remoteEvents, startCecBridge } from './cec.js'
 import { applyUpdate, checkForUpdate, isUpdateRunning } from './updater.js'
 
 const app = express()
 const port = Number(process.env.PORT || 4242)
+const torrentSearchEvents = new EventEmitter()
 app.use(cors())
 app.use(express.json({ limit: '2mb' }))
 
@@ -115,10 +117,33 @@ app.post('/api/recommendations', (req, res) => {
 app.get('/api/torrents', async (_req, res, next) => { try { res.json(await listTorrents()) } catch (e) { next(e) } })
 app.get('/api/torrents/search', async (req, res, next) => { try { res.json(await searchTorznab(String(req.query.q || ''), String(req.query.kind || 'all'))) } catch (e) { next(e) } })
 app.post('/api/torrents', async (req, res, next) => { try { const { url } = z.object({ url: z.string().min(5) }).parse(req.body); await addTorrent(url); res.status(201).json({ ok: true }) } catch (e) { next(e) } })
+app.get('/api/torrents/search/qr', async (_req, res) => {
+  const url = `http://${localIp()}:${port}/torrent-search`
+  res.json({ url, qr: await QRCode.toDataURL(url, { margin: 1, width: 320, color: { dark: '#07111f', light: '#ffffff' } }) })
+})
+app.get('/api/torrents/search/events', (req, res) => {
+  res.set({ 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' })
+  res.flushHeaders()
+  const send = (payload: { query: string; kind: string }) => res.write(`data: ${JSON.stringify(payload)}\n\n`)
+  torrentSearchEvents.on('search', send)
+  const heartbeat = setInterval(() => res.write(': ping\n\n'), 20000)
+  req.on('close', () => { clearInterval(heartbeat); torrentSearchEvents.off('search', send) })
+})
+app.post('/api/torrents/search/remote', (req, res) => {
+  const data = z.object({ query: z.string().trim().min(1).max(200), kind: z.enum(['all','movie','series']).default('all') }).parse(req.body)
+  torrentSearchEvents.emit('search', data)
+  res.json({ ok: true })
+})
 
 const publicSettings = ['MEDIA_DIRS','DOWNLOAD_DIR','TMDB_API_KEY','QBITTORRENT_URL','QBITTORRENT_USER','QBITTORRENT_PASSWORD','TORZNAB_URL','TORZNAB_API_KEY','DOWNLOAD_LIMIT','UPLOAD_LIMIT']
 app.get('/api/settings', (_req, res) => res.json(Object.fromEntries(publicSettings.map(k => [k, getSetting(k)]))))
 app.put('/api/settings', (req, res) => { for (const key of publicSettings) if (typeof req.body[key] === 'string') setSetting(key, req.body[key]); res.json({ ok: true }) })
+app.post('/api/settings/torznab/test', async (req, res, next) => {
+  try {
+    const data = z.object({ url: z.string().trim().optional(), apiKey: z.string().optional() }).parse(req.body)
+    res.json(await testTorznab(data.url, data.apiKey))
+  } catch (e) { next(e) }
+})
 app.get('/api/update/check', async (_req, res, next) => { try { res.json(await checkForUpdate()) } catch (e) { next(e) } })
 app.get('/api/update/state', (_req, res) => res.json({ updating: isUpdateRunning() }))
 app.post('/api/update/apply', async (req, res, next) => {
