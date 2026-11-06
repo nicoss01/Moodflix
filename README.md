@@ -31,11 +31,18 @@ Ouvrez `http://localhost:5173`. La base SQLite est créée dans `data/`. Les car
 Raspberry Pi 4 (4 Go minimum) ou Pi 5 recommandé, avec **Raspberry Pi OS Lite 64 bits**. Aucun Ubuntu Desktop, Raspberry Pi Desktop, GNOME, KDE ou XFCE n'est nécessaire. L'installation ajoute seulement Xorg, Openbox et Chromium, utilisés exclusivement pour afficher MoodFlix en plein écran.
 
 ```bash
-git clone <adresse-du-depot> moodflix
-cd moodflix
-chmod +x scripts/install-raspberry-pi.sh
-./scripts/install-raspberry-pi.sh
+curl -fsSL https://raw.githubusercontent.com/nicoss01/Moodflix/main/install.sh | bash
 sudo reboot
+```
+
+La commande doit être lancée avec l'utilisateur normal créé par Raspberry Pi Imager, sans `sudo`. Le script demande lui-même les droits administrateur lorsque nécessaire, installe le dépôt dans `/opt/moodflix`, puis configure tous les services. Relancer la même commande met MoodFlix à jour par avance rapide Git avant de rejouer l'installation.
+
+Pour inspecter le script avant de l'exécuter :
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/nicoss01/Moodflix/main/install.sh -o install-moodflix.sh
+less install-moodflix.sh
+bash install-moodflix.sh
 ```
 
 Au redémarrage, trois services système démarrent automatiquement : l'API MoodFlix, qBittorrent en arrière-plan, puis un serveur X minimal sur `tty7` contenant uniquement Chromium en plein écran. Le pont `cec-client` tourne dans l'API et transmet directement les touches HDMI-CEC au navigateur, sans dépendre d'une session graphique de bureau.
