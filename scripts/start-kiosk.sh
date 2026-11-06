@@ -32,8 +32,11 @@ CHROMIUM_FLAGS=(
   --start-maximized
   --no-first-run
   --no-default-browser-check
+  --lang=fr-FR
   --noerrdialogs
   --disable-infobars
+  --disable-translate
+  --disable-features=Translate,TranslateUI
   --disable-session-crashed-bubble
   --disable-pinch
   --overscroll-history-navigation=0
