@@ -74,8 +74,7 @@ install_packages() {
   sudo env DEBIAN_FRONTEND=noninteractive apt-get update
   sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     ffmpeg chromium cec-utils curl qbittorrent-nox build-essential python3 \
-    xserver-xorg-core xserver-xorg-legacy xserver-xorg-input-libinput xinit openbox \
-    x11-xserver-utils unclutter fonts-dejavu-core udisks2 udiskie dbus-x11
+    cage seatd fonts-dejavu-core udisks2 udiskie dbus-x11
 }
 
 install_node() {
@@ -94,7 +93,7 @@ prepare_storage() {
 }
 
 render_unit() {
-  sed -e "s|__APP_DIR__|$APP_DIR|g" -e "s|__USER__|$CURRENT_USER|g" -e "s|__HOME__|$HOME|g" "$1" | sudo tee "$2" >/dev/null
+  sed -e "s|__APP_DIR__|$APP_DIR|g" -e "s|__USER__|$CURRENT_USER|g" -e "s|__HOME__|$HOME|g" -e "s|__UID__|$(id -u)|g" "$1" | sudo tee "$2" >/dev/null
 }
 
 configure_services() {
@@ -103,8 +102,8 @@ configure_services() {
   render_unit "$APP_DIR/systemd/moodflix-qbittorrent.service" /etc/systemd/system/moodflix-qbittorrent.service
   chmod +x "$APP_DIR/scripts/start-kiosk.sh"
   sudo usermod -aG video,render,input "$CURRENT_USER"
-  printf 'allowed_users=anybody\nneeds_root_rights=yes\n' | sudo tee /etc/X11/Xwrapper.config >/dev/null
   sudo systemctl daemon-reload
+  sudo systemctl reset-failed moodflix-kiosk.service || true
 }
 
 enable_services() {

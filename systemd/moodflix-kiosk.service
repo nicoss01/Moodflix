@@ -1,5 +1,5 @@
 [Unit]
-Description=MoodFlix minimal TV kiosk
+Description=MoodFlix Wayland TV kiosk
 After=network-online.target moodflix.service systemd-user-sessions.service
 Wants=network-online.target
 Requires=moodflix.service
@@ -12,8 +12,10 @@ Group=__USER__
 PAMName=login
 WorkingDirectory=__APP_DIR__
 Environment=HOME=__HOME__
-Environment=DISPLAY=:0
-Environment=XAUTHORITY=__HOME__/.Xauthority
+Environment=XDG_RUNTIME_DIR=/run/user/__UID__
+Environment=XDG_SESSION_TYPE=wayland
+Environment=LIBSEAT_BACKEND=logind
+Environment=XKB_DEFAULT_LAYOUT=fr
 TTYPath=/dev/tty1
 StandardInput=tty
 StandardOutput=journal
@@ -21,7 +23,7 @@ StandardError=journal
 TTYReset=yes
 TTYVHangup=yes
 TTYVTDisallocate=yes
-ExecStart=/usr/bin/xinit __APP_DIR__/scripts/start-kiosk.sh -- :0 vt1 -keeptty -nolisten tcp
+ExecStart=/usr/bin/cage -s -- __APP_DIR__/scripts/start-kiosk.sh
 Restart=always
 RestartSec=5
 

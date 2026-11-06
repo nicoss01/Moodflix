@@ -3,11 +3,13 @@ set -euo pipefail
 
 APP_URL="${MOODFLIX_URL:-http://127.0.0.1:4242}"
 
-xset s off
-xset -dpms
-xset s noblank
-openbox-session &
-unclutter -idle 0.25 -root &
+if [[ -z "${WAYLAND_DISPLAY:-}" ]]; then
+  xset s off
+  xset -dpms
+  xset s noblank
+  openbox-session &
+  unclutter -idle 0.25 -root &
+fi
 
 # Raspberry Pi OS Lite n'a pas d'automontage de supports amovibles.
 if command -v udiskie >/dev/null 2>&1; then
@@ -25,13 +27,22 @@ if [[ -z "$BROWSER_BIN" ]]; then
   exit 1
 fi
 
-exec "$BROWSER_BIN" \
-  --kiosk \
-  --noerrdialogs \
-  --disable-infobars \
-  --disable-session-crashed-bubble \
-  --disable-pinch \
-  --overscroll-history-navigation=0 \
-  --autoplay-policy=no-user-gesture-required \
-  --user-data-dir="$HOME/.config/moodflix-chromium" \
-  "$APP_URL"
+CHROMIUM_FLAGS=(
+  --kiosk
+  --start-maximized
+  --no-first-run
+  --no-default-browser-check
+  --noerrdialogs
+  --disable-infobars
+  --disable-session-crashed-bubble
+  --disable-pinch
+  --overscroll-history-navigation=0
+  --autoplay-policy=no-user-gesture-required
+  --user-data-dir="$HOME/.config/moodflix-chromium"
+)
+
+if [[ -n "${WAYLAND_DISPLAY:-}" ]]; then
+  CHROMIUM_FLAGS+=(--ozone-platform=wayland --enable-features=UseOzonePlatform)
+fi
+
+exec "$BROWSER_BIN" "${CHROMIUM_FLAGS[@]}" "$APP_URL"

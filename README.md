@@ -29,7 +29,7 @@ Ouvrez `http://localhost:5173`. La base SQLite est créée dans `data/`. Les car
 
 ## Installation Raspberry Pi sans bureau
 
-Raspberry Pi 4 (4 Go minimum) ou Pi 5 recommandé, avec **Raspberry Pi OS Lite 64 bits**. Aucun Ubuntu Desktop, Raspberry Pi Desktop, GNOME, KDE ou XFCE n'est nécessaire. L'installation ajoute seulement Xorg, Openbox et Chromium, utilisés exclusivement pour afficher MoodFlix en plein écran.
+Raspberry Pi 4 (4 Go minimum) ou Pi 5 recommandé, avec **Raspberry Pi OS Lite 64 bits**. Aucun Ubuntu Desktop, Raspberry Pi Desktop, GNOME, KDE ou XFCE n'est nécessaire. L'installation ajoute seulement Cage, un compositeur Wayland kiosque, et Chromium pour afficher MoodFlix en plein écran.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/nicoss01/Moodflix/main/install.sh | bash
@@ -48,9 +48,9 @@ less install-moodflix.sh
 bash install-moodflix.sh
 ```
 
-Au redémarrage, trois services système démarrent automatiquement : l'API MoodFlix, qBittorrent en arrière-plan, puis un serveur X minimal qui remplace la console `tty1` par Chromium en plein écran. Le pont `cec-client` tourne dans l'API et transmet directement les touches HDMI-CEC au navigateur, sans dépendre d'une session graphique de bureau.
+Au redémarrage, trois services système démarrent automatiquement : l'API MoodFlix, qBittorrent en arrière-plan, puis Cage qui remplace la console `tty1` par Chromium en plein écran. Le pont `cec-client` tourne dans l'API et transmet directement les touches HDMI-CEC au navigateur, sans dépendre d'une session graphique de bureau.
 
-Le script prend également en charge Debian 13 sans bureau : il installe `Xorg.wrap` et configure les droits nécessaires au service kiosque. Si un écran de connexion texte reste visible après une ancienne installation, relancez simplement la commande `curl` d'installation puis redémarrez.
+Le script prend également en charge Debian 13 sans bureau. Wayland détecte automatiquement le contrôleur HDMI des Raspberry Pi 4 et 5, sans dépendre de l'ordre des cartes DRM utilisé par Xorg. Si un écran texte ou noir reste visible après une ancienne installation, relancez simplement la commande `curl` d'installation puis redémarrez.
 
 ## Configuration
 
