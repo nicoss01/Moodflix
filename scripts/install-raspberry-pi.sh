@@ -17,6 +17,7 @@ fi
 
 cleanup() { [[ "$INSTALL_OK" -eq 1 ]] && rm -f "$LOG_FILE"; }
 trap cleanup EXIT
+clear_screen() { if [[ -t 1 ]]; then printf '\033[2J\033[H'; fi; }
 logo_line() { printf "  %b%s%b%s%b%s%b%s%b\n" "$bold$white" "$1" "$red" "$2" "$white" "$3" "$red" "$4" "$reset"; }
 show_logo() {
   printf '\n'
@@ -30,11 +31,17 @@ show_logo() {
 }
 
 draw_progress() {
-  local done="$1" label="$2" spinner="${3:-✓}" width=32 filled empty percent
-  filled=$((done * width / TOTAL_STEPS)); empty=$((width - filled)); percent=$((done * 100 / TOTAL_STEPS))
-  printf -v full '%*s' "$filled" ''; full=${full// /█}
-  printf -v rest '%*s' "$empty" ''; rest=${rest// /░}
-  printf "\r  %b[%b%s%b%s%b] %3d%%  %s %s%b" "$dim" "$red" "$full" "$dim" "$rest" "$reset" "$percent" "$spinner" "$label" "$reset"
+  local done="$1" tick="$2" spinner="${3:-✓}" width=34 filled percent cursor span i bar=''
+  filled=$((done * width / TOTAL_STEPS)); percent=$((done * 100 / TOTAL_STEPS)); span=$((width - filled))
+  cursor=-1
+  [[ "$span" -gt 0 && "$tick" -ge 0 ]] && cursor=$((filled + tick % span))
+  for ((i=0; i<width; i++)); do
+    if ((i < filled)); then bar+="${red}━"
+    elif ((span > 0 && i == cursor)); then bar+="${cyan}●"
+    else bar+="${dim}─"
+    fi
+  done
+  printf "\r\033[2K  %3d%%  %b%b  %s%b" "$percent" "$bar" "$reset" "$spinner" "$reset"
 }
 
 fail() {
@@ -47,17 +54,19 @@ fail() {
 run_step() {
   local label="$1"; shift
   local step_label="Étape $((CURRENT_STEP + 1))/$TOTAL_STEPS · $label"
-  local frames=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏') frame=0
+  local frames=('◐' '◓' '◑' '◒') frame=0 tick=0
+  printf "\n  %b▶ %s%b\n" "$white$bold" "$step_label" "$reset"
+  printf '\n--- %s ---\n' "$step_label" >>"$LOG_FILE"
   "$@" >>"$LOG_FILE" 2>&1 & local pid=$!
   while kill -0 "$pid" 2>/dev/null; do
-    draw_progress "$CURRENT_STEP" "$step_label" "${frames[$frame]}"
-    frame=$(((frame + 1) % ${#frames[@]})); sleep 0.12
+    draw_progress "$CURRENT_STEP" "$tick" "${frames[$frame]}"
+    frame=$(((frame + 1) % ${#frames[@]})); tick=$((tick + 1)); sleep 0.12
   done
   if ! wait "$pid"; then fail "$label"; fi
-  CURRENT_STEP=$((CURRENT_STEP + 1)); draw_progress "$CURRENT_STEP" "$step_label" '✓'; printf '\n'
+  CURRENT_STEP=$((CURRENT_STEP + 1)); draw_progress "$CURRENT_STEP" -1 '✓'; printf '\n'
 }
 
-[[ "${MOODFLIX_BOOTSTRAP:-0}" == 1 ]] || show_logo
+if [[ "${MOODFLIX_BOOTSTRAP:-0}" != 1 ]]; then clear_screen; show_logo; fi
 printf "  %bInstallation légère · sans environnement de bureau%b\n\n" "$cyan" "$reset"
 sudo -v || fail "autorisation administrateur refusée"
 
