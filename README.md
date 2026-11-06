@@ -38,6 +38,8 @@ sudo reboot
 
 La commande doit être lancée avec l'utilisateur normal créé par Raspberry Pi Imager, sans `sudo`. Le script demande lui-même les droits administrateur lorsque nécessaire, installe le dépôt dans `/opt/moodflix`, puis configure tous les services. Relancer la même commande met MoodFlix à jour par avance rapide Git avant de rejouer l'installation.
 
+L'assistant affiche le logo MoodFlix en ASCII coloré, une barre de progression animée et le détail des étapes GitHub, système, compilation et services. Les sorties techniques sont écrites dans un journal temporaire ; en cas d'échec, son chemin et ses dernières lignes sont affichés automatiquement pour faciliter le diagnostic.
+
 Pour inspecter le script avant de l'exécuter :
 
 ```bash
