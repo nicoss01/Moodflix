@@ -5,7 +5,10 @@ Wants=network-online.target
 
 [Service]
 Type=simple
+User=__USER__
+Group=__USER__
 WorkingDirectory=__APP_DIR__
+Environment=HOME=__HOME__
 Environment=NODE_ENV=production
 Environment=PORT=4242
 Environment=MOODFLIX_DATA=__APP_DIR__/data
@@ -15,4 +18,4 @@ Restart=on-failure
 RestartSec=4
 
 [Install]
-WantedBy=default.target
+WantedBy=multi-user.target

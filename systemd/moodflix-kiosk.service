@@ -1,0 +1,29 @@
+[Unit]
+Description=MoodFlix minimal TV kiosk
+After=network-online.target moodflix.service systemd-user-sessions.service
+Wants=network-online.target
+Requires=moodflix.service
+Conflicts=getty@tty7.service
+
+[Service]
+Type=simple
+User=__USER__
+Group=__USER__
+PAMName=login
+WorkingDirectory=__APP_DIR__
+Environment=HOME=__HOME__
+Environment=DISPLAY=:0
+Environment=XAUTHORITY=__HOME__/.Xauthority
+TTYPath=/dev/tty7
+StandardInput=tty
+StandardOutput=journal
+StandardError=journal
+TTYReset=yes
+TTYVHangup=yes
+TTYVTDisallocate=yes
+ExecStart=/usr/bin/xinit __APP_DIR__/scripts/start-kiosk.sh -- :0 vt7 -keeptty -nolisten tcp
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

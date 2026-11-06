@@ -134,4 +134,5 @@ app.use((error: any, _req: express.Request, res: express.Response, _next: expres
 app.listen(port, '0.0.0.0', () => console.log(`MoodFlix · http://0.0.0.0:${port}`))
 
 scanLibraries().catch(console.error)
+setInterval(() => scanLibraries().catch(console.error), 30000)
 startCecBridge()

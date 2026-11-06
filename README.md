@@ -26,9 +26,9 @@ npm run dev
 
 Ouvrez `http://localhost:5173`. La base SQLite est créée dans `data/`. Les cartes de démonstration permettent de tester tout le parcours sans fichier média.
 
-## Installation Raspberry Pi
+## Installation Raspberry Pi sans bureau
 
-Raspberry Pi 4 (4 Go minimum) ou Pi 5 recommandé, avec Raspberry Pi OS 64 bits et environnement de bureau :
+Raspberry Pi 4 (4 Go minimum) ou Pi 5 recommandé, avec **Raspberry Pi OS Lite 64 bits**. Aucun Ubuntu Desktop, Raspberry Pi Desktop, GNOME, KDE ou XFCE n'est nécessaire. L'installation ajoute seulement Xorg, Openbox et Chromium, utilisés exclusivement pour afficher MoodFlix en plein écran.
 
 ```bash
 git clone <adresse-du-depot> moodflix
@@ -38,7 +38,7 @@ chmod +x scripts/install-raspberry-pi.sh
 sudo reboot
 ```
 
-Au redémarrage, Chromium s’ouvre en plein écran. Le serveur tourne comme service utilisateur. Les touches CEC directionnelles, validation, retour, lecture et pause sont converties en touches clavier par `cec-client`.
+Au redémarrage, trois services système démarrent automatiquement : l'API MoodFlix, qBittorrent en arrière-plan, puis un serveur X minimal sur `tty7` contenant uniquement Chromium en plein écran. Le pont `cec-client` tourne dans l'API et transmet directement les touches HDMI-CEC au navigateur, sans dépendre d'une session graphique de bureau.
 
 ## Configuration
 
@@ -49,22 +49,22 @@ Depuis l’écran Paramètres, scannez le QR code puis renseignez :
 - l’URL Newznab/Torznab et la clé de Prowlarr ou Jackett ;
 - éventuellement une clé TMDB pour l’enrichissement ultérieur des métadonnées.
 
-Les périphériques USB montés sous `/media` ou `/mnt` sont inclus au prochain scan. Raspberry Pi OS monte automatiquement les supports amovibles dans une session de bureau.
+Sur Raspberry Pi OS Lite, UDisks et udiskie assurent l'automontage léger des périphériques USB sous `/media`. MoodFlix rescane automatiquement les dossiers configurés toutes les 30 secondes.
 
 ## Commandes utiles
 
 ```bash
 npm run check       # TypeScript et tests
 npm run build       # version de production
-systemctl --user status moodflix
-journalctl --user -u moodflix -f
+sudo systemctl status moodflix moodflix-kiosk moodflix-qbittorrent
+sudo journalctl -u moodflix -u moodflix-kiosk -u moodflix-qbittorrent -f
 ```
 
 ## Architecture
 
 - `src/` — interface React responsive et navigation spatiale clavier/CEC ;
 - `server/` — API Express, SQLite, scan média, streaming, Torznab et qBittorrent ;
-- `scripts/` — installation Pi et lancement du kiosque ;
-- `systemd/` — service de démarrage automatique.
+- `scripts/` — installation Lite et lancement du kiosque minimal ;
+- `systemd/` — services de l'API et de l'affichage TV sans bureau.
 
 Pour une lecture directe maximale, privilégiez H.264/H.265 dans MP4. Les MKV et pistes audio non prises en charge par Chromium nécessiteront, dans une prochaine étape, un moteur libmpv ou un transcodage FFmpeg.

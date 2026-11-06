@@ -3,24 +3,15 @@ set -euo pipefail
 
 APP_URL="${MOODFLIX_URL:-http://127.0.0.1:4242}"
 
-# Transforme les touches HDMI-CEC de la télécommande en touches clavier comprises
-# par l'interface. Le pont est facultatif : clavier et télécommande USB restent utilisables.
-if command -v cec-client >/dev/null 2>&1 && command -v xdotool >/dev/null 2>&1; then
-  (
-    echo 'scan' | stdbuf -oL cec-client -d 8 -t p 2>/dev/null | while IFS= read -r line; do
-      case "$line" in
-        *"key pressed: left"*) xdotool key Left ;;
-        *"key pressed: right"*) xdotool key Right ;;
-        *"key pressed: up"*) xdotool key Up ;;
-        *"key pressed: down"*) xdotool key Down ;;
-        *"key pressed: select"*) xdotool key Return ;;
-        *"key pressed: exit"*|*"key pressed: previous channel"*) xdotool key BackSpace ;;
-        *"key pressed: play"*) xdotool key space ;;
-        *"key pressed: pause"*) xdotool key space ;;
-        *"key pressed: stop"*) xdotool key BackSpace ;;
-      esac
-    done
-  ) &
+xset s off
+xset -dpms
+xset s noblank
+openbox-session &
+unclutter -idle 0.25 -root &
+
+# Raspberry Pi OS Lite n'a pas d'automontage de supports amovibles.
+if command -v udiskie >/dev/null 2>&1; then
+  dbus-run-session -- udiskie --automount --no-notify &
 fi
 
 for _ in $(seq 1 40); do
@@ -28,10 +19,19 @@ for _ in $(seq 1 40); do
   sleep 1
 done
 
-exec chromium-browser \
+BROWSER_BIN="$(command -v chromium || command -v chromium-browser || true)"
+if [[ -z "$BROWSER_BIN" ]]; then
+  echo "Chromium est introuvable" >&2
+  exit 1
+fi
+
+exec "$BROWSER_BIN" \
   --kiosk \
   --noerrdialogs \
   --disable-infobars \
+  --disable-session-crashed-bubble \
+  --disable-pinch \
+  --overscroll-history-navigation=0 \
   --autoplay-policy=no-user-gesture-required \
-  --enable-features=OverlayScrollbar \
+  --user-data-dir="$HOME/.config/moodflix-chromium" \
   "$APP_URL"

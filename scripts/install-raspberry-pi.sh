@@ -8,9 +8,13 @@ fi
 APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CURRENT_USER="$(id -un)"
 
-echo "Installation des dépendances système…"
+echo "Installation du socle minimal (aucun environnement de bureau)…"
 sudo apt-get update
-sudo apt-get install -y ffmpeg chromium-browser cec-utils xdotool curl qbittorrent-nox build-essential python3
+sudo apt-get install -y --no-install-recommends \
+  ffmpeg chromium cec-utils curl qbittorrent-nox build-essential python3 \
+  xserver-xorg-core xserver-xorg-input-libinput xinit openbox \
+  x11-xserver-utils unclutter fonts-dejavu-core \
+  udisks2 udiskie dbus-x11
 
 if ! command -v node >/dev/null 2>&1 || [[ "$(node -p 'Number(process.versions.node.split(`.`)[0])')" -lt 20 ]]; then
   curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
@@ -21,26 +25,25 @@ echo "Compilation de MoodFlix…"
 cd "$APP_DIR"
 npm ci
 npm run build
-mkdir -p "$APP_DIR/data" "$HOME/.config/systemd/user" "$HOME/.config/autostart"
+mkdir -p "$APP_DIR/data"
+sudo mkdir -p /srv/media/downloads
+sudo chown -R "$CURRENT_USER:$CURRENT_USER" /srv/media
 
-sed "s|__APP_DIR__|$APP_DIR|g" "$APP_DIR/systemd/moodflix.service" > "$HOME/.config/systemd/user/moodflix.service"
-cat > "$HOME/.config/autostart/moodflix-kiosk.desktop" <<EOF
-[Desktop Entry]
-Type=Application
-Name=MoodFlix
-Exec=$APP_DIR/scripts/start-kiosk.sh
-X-GNOME-Autostart-enabled=true
-EOF
+render_unit() {
+  sed -e "s|__APP_DIR__|$APP_DIR|g" -e "s|__USER__|$CURRENT_USER|g" -e "s|__HOME__|$HOME|g" "$1" | sudo tee "$2" >/dev/null
+}
+
+render_unit "$APP_DIR/systemd/moodflix.service" /etc/systemd/system/moodflix.service
+render_unit "$APP_DIR/systemd/moodflix-kiosk.service" /etc/systemd/system/moodflix-kiosk.service
+render_unit "$APP_DIR/systemd/moodflix-qbittorrent.service" /etc/systemd/system/moodflix-qbittorrent.service
 
 chmod +x "$APP_DIR/scripts/start-kiosk.sh"
-systemctl --user daemon-reload
-systemctl --user enable --now moodflix.service
-sudo loginctl enable-linger "$CURRENT_USER"
-
-if systemctl list-unit-files | grep -q 'qbittorrent-nox@.service'; then
-  sudo systemctl enable --now "qbittorrent-nox@${CURRENT_USER}.service" || true
-fi
+sudo usermod -aG video,render,input "$CURRENT_USER"
+sudo systemctl daemon-reload
+sudo systemctl enable moodflix.service moodflix-kiosk.service moodflix-qbittorrent.service
+sudo systemctl restart moodflix.service
+sudo systemctl restart moodflix-qbittorrent.service
 
 echo
-echo "MoodFlix est installé. Redémarrez le Raspberry Pi pour lancer le mode TV."
+echo "MoodFlix est installé sur le système Lite. Redémarrez le Raspberry Pi pour lancer le mode TV."
 echo "Configuration : http://$(hostname -I | awk '{print $1}'):4242/settings"
