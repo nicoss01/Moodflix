@@ -5,8 +5,14 @@ MoodFlix est un media center personnel conçu pour Raspberry Pi et l’usage sur
 ## Fonctions disponibles
 
 - profils, classification d’âge et notes individuelles ;
+- changement rapide du profil actif depuis le menu, avec transition de chargement ;
+- recommandations personnelles selon les notes et les genres favoris choisis par QR code ;
+- découverte de nouveaux titres via TMDB, avec fiche détaillée et recherche torrent préremplie ;
+- tendances TMDB sur l’accueil et dans les sections Films/Séries lorsque la bibliothèque est vide ;
+- contenus recommandés et similaires affichés au bas de chaque fiche média ;
 - proposition « On regarde quoi ce soir ? » selon les participants, la durée et le type ;
 - découverte des films et épisodes sur les dossiers locaux et disques montés ;
+- cache persistant des métadonnées et affiches afin de limiter les appels aux services tiers ;
 - reprise de lecture, lecteur plein écran et contrôles télécommande ;
 - recherche via une API Torznab compatible Prowlarr ou Jackett ;
 - téléchargement et suivi via qBittorrent (progression, seeds, estimation, partage) ;
@@ -60,7 +66,7 @@ Depuis l’écran Paramètres, scannez le QR code puis renseignez :
 - l’adresse et les identifiants de l’interface Web qBittorrent ;
 - l’URL API Newznab/Torznab complète et la clé de votre indexeur (l’URL doit renvoyer du XML, pas la page d’accueil du site) ;
 - une clé OMDb pour récupérer automatiquement le titre, le résumé, les genres, la classification et l’affiche lors de l’analyse de la bibliothèque ;
-- éventuellement une clé TMDB pour un enrichissement complémentaire ultérieur.
+- éventuellement une clé TMDB pour proposer des films et séries absents de la bibliothèque dans la page Recommandations.
 
 Les boutons **Tester** des réglages contrôlent les connexions Torznab et OMDb avant l’enregistrement. Sur l’écran Torrent, la recherche peut être saisie avec le clavier virtuel ou depuis un téléphone en scannant le QR code ; la requête est alors transmise immédiatement à la télévision.
 

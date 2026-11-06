@@ -3,7 +3,7 @@ import path from 'node:path'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { db, getSetting } from './db.js'
-import { lookupOmdb } from './omdb.js'
+import { cacheArtwork, lookupOmdb } from './omdb.js'
 
 const execFileAsync = promisify(execFile)
 const VIDEO_EXTENSIONS = new Set(['.mp4', '.mkv', '.avi', '.mov', '.m4v', '.webm', '.ts'])
@@ -45,11 +45,13 @@ export async function scanLibraries(extraDirs: string[] = []) {
     ON CONFLICT(path) DO UPDATE SET available=1,title=CASE WHEN media.overview='' THEN excluded.title ELSE media.title END,duration=excluded.duration`)
   const findMedia = db.prepare('SELECT overview,poster FROM media WHERE path=?')
   const enrich = db.prepare(`UPDATE media SET title=CASE WHEN overview='' THEN @title ELSE title END,series_title=COALESCE(@seriesTitle,series_title),year=COALESCE(@year,year),age_rating=@ageRating,genres=@genres,overview=CASE WHEN overview='' THEN @overview ELSE overview END,poster=CASE WHEN poster IS NULL OR poster='' THEN @poster ELSE poster END WHERE path=@path`)
+  const updatePoster=db.prepare('UPDATE media SET poster=? WHERE path=?')
   let enriched = 0
   for (const file of files) {
     const identity = parseMediaName(file)
     upsert.run({ path: file, ...identity, duration: await duration(file) })
     const current = findMedia.get(file) as { overview:string;poster:string|null }|undefined
+    if(current?.poster&&/^https?:\/\//i.test(current.poster)){const cachedPoster=await cacheArtwork(current.poster);if(cachedPoster!==current.poster)updatePoster.run(cachedPoster,file)}
     const lastAttempt = metadataAttempts.get(file) || 0
     if (getSetting('OMDB_API_KEY') && (!current?.overview || !current?.poster) && Date.now()-lastAttempt >= METADATA_RETRY_MS) {
       metadataAttempts.set(file, Date.now())

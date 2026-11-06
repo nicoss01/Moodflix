@@ -1,5 +1,7 @@
 export type Profile = { id:number; name:string; avatar:string; color:string; max_age:number; is_admin:number }
 export type Media = { id:number; title:string; kind:'movie'|'series'; series_title?:string; season?:number; episode?:number; year:number; duration:number; age_rating:number; genres:string[]; overview:string; poster?:string; backdrop?:string; path?:string; position?:number }
+export type Recommendation = { id:string; title:string; kind:'movie'|'series'; year:number; genres:string[]; overview:string; poster?:string; backdrop?:string; age_rating:number; score:number; reason:string; available:boolean; localMediaId?:number; source:'library'|'tmdb' }
+export type ProfilePreferences = { profile:Profile; allGenres:string[]; selectedGenres:string[]; inferredGenres:string[]; weights:Record<string,number> }
 export type TorrentResult = { id:string; title:string; link:string; size:number; seeds:number; peers:number; published?:string; source:string }
 export type TorznabTestResult = { ok:boolean; name:string; categories:number }
 export type OmdbTestResult = { ok:boolean; title:string; poster:boolean }
@@ -20,6 +22,12 @@ export const api = {
   mediaById: (id:string) => request<Media>(`/media/${id}`),
   scan: () => request<{found:number;directories:string[];enriched:number}>('/library/scan', { method:'POST' }),
   recommend: (body:object) => request<{ageLimit:number;items:Media[]}>('/recommendations', { method:'POST', body:JSON.stringify(body) }),
+  profileRecommendations: (profileId:number) => request<{profile:Profile;preferences:{selectedGenres:string[];inferredGenres:string[]};source:'tmdb'|'library';items:Recommendation[]}>(`/recommendations/profile/${profileId}`),
+  profilePreferences: (profileId:number) => request<ProfilePreferences>(`/profiles/${profileId}/preferences`),
+  saveProfilePreferences: (profileId:number,genres:string[]) => request<ProfilePreferences>(`/profiles/${profileId}/preferences`, { method:'PUT', body:JSON.stringify({genres}) }),
+  recommendationPreferencesQr: (profileId:number) => request<{url:string;qr:string}>(`/recommendations/preferences/qr?profileId=${profileId}`),
+  trending: (kind:'movie'|'series',profileId?:number) => request<Recommendation[]>(`/catalog/trending?kind=${kind}${profileId?`&profileId=${profileId}`:''}`),
+  related: (item:Recommendation,profileId?:number) => { const parts=item.id.split(':'); const tmdbId=parts[0]==='tmdb'?parts[2]:''; return request<Recommendation[]>(`/catalog/related?kind=${item.kind}&title=${encodeURIComponent(item.title)}&year=${item.year||''}${tmdbId?`&tmdbId=${tmdbId}`:''}${profileId?`&profileId=${profileId}`:''}`) },
   rate: (profileId:number, mediaId:number, score:number) => request(`/profiles/${profileId}/rating`, { method:'PUT', body:JSON.stringify({mediaId,score}) }),
   saveProgress: (body:object) => request('/progress', { method:'PUT', body:JSON.stringify(body) }),
   continueWatching: (profileId:number) => request<Media[]>(`/progress/continue?profileId=${profileId}`),

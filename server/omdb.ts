@@ -1,4 +1,10 @@
-import { getSetting } from './db.js'
+import fs from 'node:fs'
+import path from 'node:path'
+import { createHash } from 'node:crypto'
+import { db, getSetting } from './db.js'
+
+export const artworkDir = path.resolve(process.env.MOODFLIX_DATA || './data','artwork')
+fs.mkdirSync(artworkDir,{recursive:true})
 
 export type MediaIdentity = {
   title: string
@@ -52,6 +58,9 @@ export function mapOmdbMetadata(data: OmdbResponse, identity: MediaIdentity) {
 }
 
 async function requestOmdb(params: Record<string,string>, apiKey: string) {
+  const cacheKey=`omdb:${createHash('sha256').update(JSON.stringify(Object.entries(params).sort())).digest('hex')}`
+  const cached=db.prepare('SELECT payload FROM metadata_cache WHERE cache_key=? AND expires_at>?').get(cacheKey,Date.now()) as {payload:string}|undefined
+  if(cached)return JSON.parse(cached.payload) as OmdbResponse|null
   const url = new URL('https://www.omdbapi.com/')
   url.searchParams.set('apikey', apiKey)
   url.searchParams.set('r', 'json')
@@ -61,12 +70,30 @@ async function requestOmdb(params: Record<string,string>, apiKey: string) {
   try { response = await fetch(url, { signal: AbortSignal.timeout(10000) }) }
   catch (error: any) {
     console.warn(`OMDb indisponible : ${error?.message || 'erreur réseau'}`)
+    db.prepare('INSERT INTO metadata_cache(cache_key,provider,payload,expires_at) VALUES(?,?,?,?) ON CONFLICT(cache_key) DO UPDATE SET payload=excluded.payload,expires_at=excluded.expires_at,updated_at=CURRENT_TIMESTAMP').run(cacheKey,'omdb','null',Date.now()+60*60*1000)
     return null
   }
   if (!response.ok) { console.warn(`OMDb : erreur HTTP ${response.status}`); return null }
   const data = await response.json() as OmdbResponse
+  const ttl=data.Response==='False'?6*60*60*1000:30*24*60*60*1000
+  db.prepare('INSERT INTO metadata_cache(cache_key,provider,payload,expires_at) VALUES(?,?,?,?) ON CONFLICT(cache_key) DO UPDATE SET payload=excluded.payload,expires_at=excluded.expires_at,updated_at=CURRENT_TIMESTAMP').run(cacheKey,'omdb',JSON.stringify(data.Response==='False'?null:data),Date.now()+ttl)
   if (data.Response === 'False') return null
   return data
+}
+
+export async function cacheArtwork(url:string){
+  if(!/^https?:\/\//i.test(url))return url
+  const parsed=new URL(url),extension=path.extname(parsed.pathname).toLowerCase().match(/^\.(jpe?g|png|webp)$/)?.[0]||'.jpg'
+  const filename=`${createHash('sha256').update(url).digest('hex')}${extension}`,destination=path.join(artworkDir,filename)
+  if(fs.existsSync(destination))return `/api/artwork/${filename}`
+  try{
+    const response=await fetch(url,{signal:AbortSignal.timeout(15000)})
+    if(!response.ok||!response.headers.get('content-type')?.startsWith('image/'))return url
+    const bytes=Buffer.from(await response.arrayBuffer())
+    if(bytes.length>12*1024*1024)return url
+    await fs.promises.writeFile(destination,bytes)
+    return `/api/artwork/${filename}`
+  }catch{return url}
 }
 
 export async function lookupOmdb(identity: MediaIdentity) {
@@ -83,7 +110,10 @@ export async function lookupOmdb(identity: MediaIdentity) {
   }
   let data = await requestOmdb(params, apiKey)
   if (!data && identity.kind === 'series') data = await requestOmdb({ t: identity.seriesTitle || identity.title, type: 'series' }, apiKey)
-  return data ? mapOmdbMetadata(data, identity) : null
+  if(!data)return null
+  const metadata=mapOmdbMetadata(data, identity)
+  if(metadata.poster)metadata.poster=await cacheArtwork(metadata.poster)
+  return metadata
 }
 
 export async function testOmdb(apiKey: string) {

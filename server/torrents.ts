@@ -3,13 +3,22 @@ import { getSetting } from './db.js'
 
 let qbitCookie = ''
 
+export function resolveQbitBase(configured:string){
+  const value=configured.trim()||'http://127.0.0.1:8080'
+  let url:URL
+  try{url=new URL(value)}catch{throw new Error('Adresse qBittorrent invalide. Utilisez une URL complète, par exemple http://127.0.0.1:8080.')}
+  if(!['http:','https:'].includes(url.protocol))throw new Error('L’adresse qBittorrent doit commencer par http:// ou https://.')
+  return value.replace(/\/$/,'')
+}
+
 async function qbit(path: string, init: RequestInit = {}) {
-  const base = getSetting('QBITTORRENT_URL', 'http://127.0.0.1:8080').replace(/\/$/, '')
+  const configuredBase = getSetting('QBITTORRENT_URL', '').trim()
+  const base = resolveQbitBase(configuredBase)
   const headers = new Headers(init.headers)
   if (qbitCookie) headers.set('Cookie', qbitCookie)
   let response = await fetch(`${base}${path}`, { ...init, headers })
   if (response.status === 403 || response.status === 401 || (!qbitCookie && path !== '/api/v2/auth/login')) {
-    const body = new URLSearchParams({ username: getSetting('QBITTORRENT_USER','admin'), password: getSetting('QBITTORRENT_PASSWORD','') })
+    const body = new URLSearchParams({ username: getSetting('QBITTORRENT_USER','').trim() || 'admin', password: getSetting('QBITTORRENT_PASSWORD','') })
     const login = await fetch(`${base}/api/v2/auth/login`, { method: 'POST', body })
     qbitCookie = login.headers.get('set-cookie')?.split(';')[0] || ''
     headers.set('Cookie', qbitCookie)

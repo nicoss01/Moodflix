@@ -40,6 +40,18 @@ db.exec(`
     score INTEGER NOT NULL CHECK(score BETWEEN 1 AND 5),
     PRIMARY KEY(profile_id, media_id)
   );
+  CREATE TABLE IF NOT EXISTS profile_genre_preferences (
+    profile_id INTEGER NOT NULL,
+    genre TEXT NOT NULL,
+    PRIMARY KEY(profile_id, genre)
+  );
+  CREATE TABLE IF NOT EXISTS metadata_cache (
+    cache_key TEXT PRIMARY KEY,
+    provider TEXT NOT NULL,
+    payload TEXT NOT NULL,
+    expires_at INTEGER NOT NULL,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );
   CREATE TABLE IF NOT EXISTS progress (
     profile_id INTEGER NOT NULL,
     media_id INTEGER NOT NULL,
@@ -63,20 +75,10 @@ if (!count.n) {
   insert.run('Chloé', 'fox', '#ff6c72', 8, 0)
 }
 
-const mediaCount = db.prepare('SELECT count(*) AS n FROM media').get() as { n: number }
-if (!mediaCount.n) {
-  const insert = db.prepare(`INSERT INTO media
-    (path,title,kind,series_title,season,episode,year,duration,age_rating,genres,overview,poster,backdrop)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`)
-  const demos = [
-    [null,'Dune : Deuxième Partie','movie',null,null,null,2024,9960,12,'["Aventure","Science-fiction"]','Paul Atréides s’unit aux Fremen pour mener la révolte contre ceux qui ont détruit sa famille. Une épopée spectaculaire.','gradient:sand','gradient:dune'],
-    [null,'Interstellar','movie',null,null,null,2014,10147,10,'["Science-fiction","Drame"]','Un groupe d’explorateurs utilise une faille dans l’espace-temps pour repousser les limites du voyage humain.','gradient:space','gradient:interstellar'],
-    [null,'Le Dernier Royaume','series','Le Dernier Royaume',1,1,2025,3120,12,'["Drame","Aventure"]','Une héritière découvre un royaume oublié et le secret qui lie sa famille à son destin.','gradient:forest','gradient:forest'],
-    [null,'Les Chroniques du Nord','series','Les Chroniques du Nord',1,2,2025,2880,10,'["Fantastique","Aventure"]','La troupe poursuit sa route au-delà des montagnes interdites.','gradient:ice','gradient:ice'],
-    [null,'Cosmos 9','series','Cosmos 9',2,4,2026,2700,7,'["Science-fiction","Famille"]','L’équipage reçoit un signal venu d’une lune que toutes les cartes disent inhabitée.','gradient:violet','gradient:violet']
-  ]
-  for (const item of demos) insert.run(...item)
-}
+// Supprime les anciennes cartes de démonstration sans toucher aux fichiers réellement indexés.
+db.prepare("DELETE FROM media WHERE path IS NULL AND poster LIKE 'gradient:%'").run()
+db.prepare('DELETE FROM ratings WHERE media_id NOT IN (SELECT id FROM media)').run()
+db.prepare('DELETE FROM progress WHERE media_id NOT IN (SELECT id FROM media)').run()
 
 export function getSetting(key: string, fallback = '') {
   const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key) as { value: string } | undefined

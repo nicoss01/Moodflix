@@ -11,13 +11,16 @@ import { scanLibraries } from './scanner.js'
 import { addTorrent, listTorrents, searchTorznab, testTorznab } from './torrents.js'
 import { remoteEvents, startCecBridge } from './cec.js'
 import { applyUpdate, checkForUpdate, isUpdateRunning } from './updater.js'
-import { testOmdb } from './omdb.js'
+import { artworkDir, testOmdb } from './omdb.js'
+import { getProfilePreferences, getRecommendationsForProfile, getRelated, getTrending, saveProfilePreferences } from './recommendations.js'
 
 const app = express()
 const port = Number(process.env.PORT || 4242)
 const torrentSearchEvents = new EventEmitter()
+const preferenceEvents = new EventEmitter()
 app.use(cors())
 app.use(express.json({ limit: '2mb' }))
+app.use('/api/artwork',express.static(artworkDir,{maxAge:'30d',immutable:true}))
 
 function localIp() {
   for (const addresses of Object.values(os.networkInterfaces())) for (const address of addresses || [])
@@ -53,6 +56,7 @@ app.delete('/api/profiles/:id', (req, res) => {
   db.transaction(() => {
     db.prepare('DELETE FROM ratings WHERE profile_id=?').run(req.params.id)
     db.prepare('DELETE FROM progress WHERE profile_id=?').run(req.params.id)
+    db.prepare('DELETE FROM profile_genre_preferences WHERE profile_id=?').run(req.params.id)
     db.prepare('DELETE FROM profiles WHERE id=?').run(req.params.id)
   })()
   res.json({ ok: true })
@@ -113,6 +117,53 @@ app.post('/api/recommendations', (req, res) => {
     .filter(m => data.kind === 'all' || m.kind === data.kind).filter(m => !data.maxDuration || m.duration <= data.maxDuration * 60)
     .sort((a,b) => b.year-a.year).slice(0, 12).map(parseMedia)
   res.json({ ageLimit: age, items: media })
+})
+app.get('/api/recommendations/profile/:id', async (req, res, next) => {
+  try { res.json(await getRecommendationsForProfile(Number(req.params.id))) }
+  catch (e) { next(e) }
+})
+app.get('/api/profiles/:id/preferences', (req, res, next) => {
+  try { res.json(getProfilePreferences(Number(req.params.id))) }
+  catch (e) { next(e) }
+})
+app.put('/api/profiles/:id/preferences', (req, res, next) => {
+  try {
+    const { genres } = z.object({ genres:z.array(z.string()).max(30) }).parse(req.body)
+    const profileId=Number(req.params.id)
+    saveProfilePreferences(profileId, genres)
+    preferenceEvents.emit('change', profileId)
+    res.json(getProfilePreferences(profileId))
+  } catch (e) { next(e) }
+})
+app.get('/api/recommendations/preferences/events', (req, res) => {
+  const profileId=Number(req.query.profileId)
+  res.set({ 'Content-Type':'text/event-stream', 'Cache-Control':'no-cache', Connection:'keep-alive' })
+  res.flushHeaders()
+  const send=(changedId:number)=>{if(changedId===profileId)res.write(`data: ${JSON.stringify({profileId})}\n\n`)}
+  preferenceEvents.on('change',send)
+  const heartbeat=setInterval(()=>res.write(': ping\n\n'),20000)
+  req.on('close',()=>{clearInterval(heartbeat);preferenceEvents.off('change',send)})
+})
+app.get('/api/recommendations/preferences/qr', async (req, res, next) => {
+  try {
+    const profileId = z.coerce.number().int().positive().parse(req.query.profileId)
+    const profile = db.prepare('SELECT id FROM profiles WHERE id=?').get(profileId)
+    if (!profile) return res.status(404).json({ error:'Profil introuvable' })
+    const url = `http://${localIp()}:${port}/recommendation-preferences?profileId=${profileId}`
+    res.json({ url, qr:await QRCode.toDataURL(url, { margin:1, width:320, color:{ dark:'#07111f', light:'#ffffff' } }) })
+  } catch (e) { next(e) }
+})
+app.get('/api/catalog/trending', async (req,res,next)=>{
+  try{
+    const data=z.object({kind:z.enum(['movie','series']),profileId:z.coerce.number().int().positive().optional()}).parse(req.query)
+    res.json(await getTrending(data.kind,data.profileId))
+  }catch(e){next(e)}
+})
+app.get('/api/catalog/related', async (req,res,next)=>{
+  try{
+    const data=z.object({kind:z.enum(['movie','series']),tmdbId:z.coerce.number().int().positive().optional(),title:z.string().optional(),year:z.coerce.number().int().optional(),profileId:z.coerce.number().int().positive().optional()}).parse(req.query)
+    res.json(await getRelated(data))
+  }catch(e){next(e)}
 })
 
 app.get('/api/torrents', async (_req, res, next) => { try { res.json(await listTorrents()) } catch (e) { next(e) } })
