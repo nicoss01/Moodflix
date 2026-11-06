@@ -1,0 +1,18 @@
+[Unit]
+Description=MoodFlix media center
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=__APP_DIR__
+Environment=NODE_ENV=production
+Environment=PORT=4242
+Environment=MOODFLIX_DATA=__APP_DIR__/data
+EnvironmentFile=-__APP_DIR__/.env
+ExecStart=/usr/bin/npm start
+Restart=on-failure
+RestartSec=4
+
+[Install]
+WantedBy=default.target
