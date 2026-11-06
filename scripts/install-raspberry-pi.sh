@@ -12,7 +12,7 @@ echo "Installation du socle minimal (aucun environnement de bureau)…"
 sudo apt-get update
 sudo apt-get install -y --no-install-recommends \
   ffmpeg chromium cec-utils curl qbittorrent-nox build-essential python3 \
-  xserver-xorg-core xserver-xorg-input-libinput xinit openbox \
+  xserver-xorg-core xserver-xorg-legacy xserver-xorg-input-libinput xinit openbox \
   x11-xserver-utils unclutter fonts-dejavu-core \
   udisks2 udiskie dbus-x11
 
@@ -39,6 +39,10 @@ render_unit "$APP_DIR/systemd/moodflix-qbittorrent.service" /etc/systemd/system/
 
 chmod +x "$APP_DIR/scripts/start-kiosk.sh"
 sudo usermod -aG video,render,input "$CURRENT_USER"
+sudo tee /etc/X11/Xwrapper.config >/dev/null <<'EOF'
+allowed_users=anybody
+needs_root_rights=yes
+EOF
 sudo systemctl daemon-reload
 sudo systemctl enable moodflix.service moodflix-kiosk.service moodflix-qbittorrent.service
 sudo systemctl restart moodflix.service

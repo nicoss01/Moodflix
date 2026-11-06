@@ -46,7 +46,9 @@ less install-moodflix.sh
 bash install-moodflix.sh
 ```
 
-Au redémarrage, trois services système démarrent automatiquement : l'API MoodFlix, qBittorrent en arrière-plan, puis un serveur X minimal sur `tty7` contenant uniquement Chromium en plein écran. Le pont `cec-client` tourne dans l'API et transmet directement les touches HDMI-CEC au navigateur, sans dépendre d'une session graphique de bureau.
+Au redémarrage, trois services système démarrent automatiquement : l'API MoodFlix, qBittorrent en arrière-plan, puis un serveur X minimal qui remplace la console `tty1` par Chromium en plein écran. Le pont `cec-client` tourne dans l'API et transmet directement les touches HDMI-CEC au navigateur, sans dépendre d'une session graphique de bureau.
+
+Le script prend également en charge Debian 13 sans bureau : il installe `Xorg.wrap` et configure les droits nécessaires au service kiosque. Si un écran de connexion texte reste visible après une ancienne installation, relancez simplement la commande `curl` d'installation puis redémarrez.
 
 ## Configuration
 
