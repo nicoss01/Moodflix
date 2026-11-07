@@ -27,6 +27,12 @@ type OmdbResponse = {
   Error?: string
 }
 
+type OmdbSearchResponse = {
+  Search?: Array<{Title?:string;Year?:string;imdbID?:string;Type?:string}>
+  Response?: string
+  Error?: string
+}
+
 export function ageFromOmdb(rated?: string) {
   const value = (rated || '').toUpperCase()
   if (['G','TV-G','TV-Y'].includes(value)) return 3
@@ -38,6 +44,22 @@ export function ageFromOmdb(rated?: string) {
 }
 
 const useful = (value?: string) => value && value !== 'N/A' ? value : ''
+
+export function normalizeOmdbTitle(value:string){
+  return value.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLocaleLowerCase('fr').replace(/['’`]/g,'').replace(/[^a-z0-9]+/g,' ').trim().replace(/\s+/g,' ')
+}
+
+function apostropheVariants(title:string){
+  const words=title.split(/\s+/),variants:string[]=[]
+  for(let index=0;index<words.length;index++){
+    const word=words[index]
+    if(word.length<4||!/[a-z]s$/i.test(word))continue
+    const copy=[...words]
+    copy[index]=`${word.slice(0,-1)}'s`
+    variants.push(copy.join(' '))
+  }
+  return variants
+}
 
 export function mapOmdbMetadata(data: OmdbResponse, identity: MediaIdentity) {
   const omdbTitle = useful(data.Title)
@@ -57,11 +79,11 @@ export function mapOmdbMetadata(data: OmdbResponse, identity: MediaIdentity) {
   }
 }
 
-async function requestOmdb(params: Record<string,string>, apiKey: string, force=false) {
+async function requestOmdb<T extends {Response?:string} = OmdbResponse>(params: Record<string,string>, apiKey: string, force=false) {
   const cacheKey=`omdb:${createHash('sha256').update(JSON.stringify(Object.entries(params).sort())).digest('hex')}`
   if(!force){
     const cached=db.prepare('SELECT payload FROM metadata_cache WHERE cache_key=? AND expires_at>?').get(cacheKey,Date.now()) as {payload:string}|undefined
-    if(cached)return JSON.parse(cached.payload) as OmdbResponse|null
+    if(cached)return JSON.parse(cached.payload) as T|null
   }
   const url = new URL('https://www.omdbapi.com/')
   url.searchParams.set('apikey', apiKey)
@@ -76,11 +98,21 @@ async function requestOmdb(params: Record<string,string>, apiKey: string, force=
     return null
   }
   if (!response.ok) { console.warn(`OMDb : erreur HTTP ${response.status}`); return null }
-  const data = await response.json() as OmdbResponse
+  const data = await response.json() as T
   const ttl=data.Response==='False'?6*60*60*1000:30*24*60*60*1000
   db.prepare('INSERT INTO metadata_cache(cache_key,provider,payload,expires_at) VALUES(?,?,?,?) ON CONFLICT(cache_key) DO UPDATE SET payload=excluded.payload,expires_at=excluded.expires_at,updated_at=CURRENT_TIMESTAMP').run(cacheKey,'omdb',JSON.stringify(data.Response==='False'?null:data),Date.now()+ttl)
   if (data.Response === 'False') return null
   return data
+}
+
+async function searchOmdbTitle(title:string,type:'movie'|'series',apiKey:string,force:boolean){
+  const expected=normalizeOmdbTitle(title)
+  for(const query of [title,...apostropheVariants(title)]){
+    const results=await requestOmdb<OmdbSearchResponse>({s:query,type},apiKey,force)
+    const match=results?.Search?.find(item=>item.imdbID&&normalizeOmdbTitle(item.Title||'')===expected)
+    if(match?.imdbID)return requestOmdb<OmdbResponse>({i:match.imdbID},apiKey,force)
+  }
+  return null
 }
 
 export async function cacheArtwork(url:string){
@@ -111,8 +143,13 @@ export async function lookupOmdb(identity: MediaIdentity, force=false) {
     params.Season = String(identity.season)
     params.Episode = String(identity.episode)
   }
-  let data = await requestOmdb(params, apiKey, force)
-  if (!data && identity.kind === 'series'&&isEpisode) data = await requestOmdb({ t: identity.seriesTitle || identity.title, type: 'series' }, apiKey, force)
+  let data = await requestOmdb<OmdbResponse>(params, apiKey, force)
+  if(!data&&!isEpisode)data=await searchOmdbTitle(params.t,identity.kind==='series'?'series':'movie',apiKey,force)
+  if (!data && identity.kind === 'series'&&isEpisode){
+    const seriesTitle=identity.seriesTitle||identity.title
+    data = await requestOmdb<OmdbResponse>({t:seriesTitle,type:'series'},apiKey,force)
+      ||await searchOmdbTitle(seriesTitle,'series',apiKey,force)
+  }
   if(!data)return null
   const metadata=mapOmdbMetadata(data, identity)
   if(metadata.poster)metadata.poster=await cacheArtwork(metadata.poster)
