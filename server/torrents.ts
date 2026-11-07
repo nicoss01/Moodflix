@@ -57,12 +57,48 @@ export async function listTorrents() {
   return response.json()
 }
 
+type QbitTorrent={hash:string;name:string;progress:number;state:string;[key:string]:unknown}
+
+export function assertQbitAddResponse(body:string){
+  const result=body.trim()
+  if(result && result!=='Ok.')throw new Error(`qBittorrent a refusé le torrent${result==='Fails.'?' (réponse « Fails. »). Vérifiez le lien fourni par le moteur et le dossier de téléchargement.':` : ${result}`}`)
+}
+
+function magnetInfoHash(value:string){
+  try{
+    const url=new URL(value)
+    if(url.protocol!=='magnet:')return ''
+    const xt=url.searchParams.get('xt')||''
+    return xt.toLowerCase().startsWith('urn:btih:')?xt.slice(9).toLowerCase():''
+  }catch{return ''}
+}
+
+const wait=(delay:number)=>new Promise(resolve=>setTimeout(resolve,delay))
+
 export async function addTorrent(url: string) {
+  const before=await listTorrents() as QbitTorrent[]
+  const previousHashes=new Set(before.map(item=>String(item.hash).toLowerCase()))
+  const expectedHash=magnetInfoHash(url)
   const form = new FormData()
   form.set('urls', url)
   form.set('category', 'moodflix')
   form.set('savepath', getSetting('DOWNLOAD_DIR', '/srv/media/downloads'))
-  await qbit('/api/v2/torrents/add', { method: 'POST', body: form })
+  const response=await qbit('/api/v2/torrents/add', { method: 'POST', body: form })
+  assertQbitAddResponse(await response.text())
+
+  // L'ajout d'une URL .torrent peut demander quelques secondes à qBittorrent.
+  // Ne confirmer à l'interface qu'après l'avoir réellement retrouvé dans la liste.
+  for(let attempt=0;attempt<15;attempt++){
+    if(attempt)await wait(400)
+    const current=await listTorrents() as QbitTorrent[]
+    const torrent=(expectedHash&&current.find(item=>String(item.hash).toLowerCase()===expectedHash))
+      ||current.find(item=>!previousHashes.has(String(item.hash).toLowerCase()))
+    if(torrent)return{ok:true,torrent,duplicate:false}
+  }
+
+  const duplicate=expectedHash&&before.find(item=>String(item.hash).toLowerCase()===expectedHash)
+  if(duplicate)return{ok:true,torrent:duplicate,duplicate:true}
+  throw new Error('qBittorrent a accepté la demande, mais le torrent n’apparaît pas dans sa liste. Vérifiez le journal qBittorrent et le lien de téléchargement fourni par le moteur.')
 }
 
 export async function testQbit(baseValue?:string,usernameValue?:string,passwordValue?:string){

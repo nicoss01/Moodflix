@@ -31,6 +31,8 @@ db.exec(`
     overview TEXT NOT NULL DEFAULT '',
     poster TEXT,
     backdrop TEXT,
+    file_size INTEGER NOT NULL DEFAULT 0,
+    file_mtime INTEGER NOT NULL DEFAULT 0,
     added_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     available INTEGER NOT NULL DEFAULT 1
   );
@@ -65,6 +67,11 @@ db.exec(`
     value TEXT NOT NULL
   );
 `)
+
+for(const migration of [
+  'ALTER TABLE media ADD COLUMN file_size INTEGER NOT NULL DEFAULT 0',
+  'ALTER TABLE media ADD COLUMN file_mtime INTEGER NOT NULL DEFAULT 0'
+]){try{db.exec(migration)}catch(error:any){if(!String(error?.message).includes('duplicate column name'))throw error}}
 
 const count = db.prepare('SELECT count(*) AS n FROM profiles').get() as { n: number }
 if (!count.n) {

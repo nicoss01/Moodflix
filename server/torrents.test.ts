@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { buildQbitHeaders, buildTorznabUrl, resolveQbitBase, testQbit } from './torrents.js'
+import { assertQbitAddResponse, buildQbitHeaders, buildTorznabUrl, resolveQbitBase, testQbit } from './torrents.js'
 
 afterEach(()=>vi.restoreAllMocks())
 
@@ -39,5 +39,14 @@ describe('resolveQbitBase',()=>{
     expect(login[0]).toBe('http://127.0.0.1:8080/api/v2/auth/login')
     expect(String(login[1]?.body)).toContain('password=secret')
     expect(new Headers(fetchMock.mock.calls[1][1]?.headers).get('Cookie')).toBe('SID=session')
+  })
+})
+
+describe('assertQbitAddResponse',()=>{
+  it('accepte la confirmation qBittorrent',()=>{
+    expect(()=>assertQbitAddResponse('Ok.')).not.toThrow()
+  })
+  it('refuse le faux succès HTTP 200 de qBittorrent',()=>{
+    expect(()=>assertQbitAddResponse('Fails.')).toThrow(/refusé le torrent/)
   })
 })

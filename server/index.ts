@@ -3,8 +3,9 @@ import cors from 'cors'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { promisify } from 'node:util'
 import { EventEmitter } from 'node:events'
-import { spawn } from 'node:child_process'
+import { execFile, spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import QRCode from 'qrcode'
 import { z } from 'zod'
@@ -24,6 +25,7 @@ const torrentSearchEvents = new EventEmitter()
 const preferenceEvents = new EventEmitter()
 type LibraryScanJob={id:string;device:string;status:'waiting'|'running'|'complete'|'error';phase:'mounting'|ScanProgress['phase'];current:number;total:number;percent:number;found:number;enriched:number;recent:NonNullable<ScanProgress['latest']>[];error?:string}
 const libraryScanJobs=new Map<string,LibraryScanJob>()
+const execFileAsync=promisify(execFile)
 app.use(cors())
 app.use(express.json({ limit: '2mb' }))
 app.use('/api/artwork',express.static(artworkDir,{maxAge:'30d',immutable:true}))
@@ -152,15 +154,40 @@ app.post('/api/library/drives/scan',async(req,res,next)=>{
   }catch(e){next(e)}
 })
 app.get('/api/library/drives/scan/:id',(req,res)=>{const job=libraryScanJobs.get(req.params.id);if(!job)return res.status(404).json({error:'Analyse introuvable ou terminée depuis trop longtemps.'});res.json(job)})
-app.get('/api/media/:id/stream', (req, res) => {
-  const item = db.prepare('SELECT path FROM media WHERE id=?').get(req.params.id) as { path?: string } | undefined
-  if (!item?.path || !fs.existsSync(item.path)) return res.status(404).json({ error: 'Fichier indisponible' })
-  const stat = fs.statSync(item.path), range = req.headers.range
-  if (!range) { res.set({ 'Content-Length':String(stat.size), 'Content-Type':mediaContentType(item.path), 'Accept-Ranges':'bytes' }); return fs.createReadStream(item.path).pipe(res) }
+function streamMediaFile(req:any,res:any,file:string){
+  const stat = fs.statSync(file), range = req.headers.range
+  if (!range) { res.set({ 'Content-Length':String(stat.size), 'Content-Type':mediaContentType(file), 'Accept-Ranges':'bytes' }); return fs.createReadStream(file).pipe(res) }
   const [startText, endText] = range.replace(/bytes=/, '').split('-')
   const start = Number(startText), end = endText ? Number(endText) : stat.size - 1
-  res.status(206).set({ 'Accept-Ranges': 'bytes', 'Content-Range': `bytes ${start}-${end}/${stat.size}`, 'Content-Length': end-start+1, 'Content-Type': mediaContentType(item.path) })
-  fs.createReadStream(item.path, { start, end }).pipe(res)
+  res.status(206).set({ 'Accept-Ranges': 'bytes', 'Content-Range': `bytes ${start}-${end}/${stat.size}`, 'Content-Length': end-start+1, 'Content-Type': mediaContentType(file) })
+  fs.createReadStream(file, { start, end }).pipe(res)
+}
+
+async function firstAudioCodec(file:string){
+  try{const {stdout}=await execFileAsync('ffprobe',['-v','error','-select_streams','a:0','-show_entries','stream=codec_name','-of','default=nw=1:nk=1',file],{timeout:8000});return stdout.trim().toLowerCase()}
+  catch{return ''}
+}
+
+app.get('/api/media/:id/stream', async (req, res) => {
+  const item = db.prepare('SELECT path FROM media WHERE id=?').get(req.params.id) as { path?: string } | undefined
+  if (!item?.path || !fs.existsSync(item.path)) return res.status(404).json({ error: 'Fichier indisponible' })
+  const codec=await firstAudioCodec(item.path)
+  if(!codec||['aac','mp3','opus','vorbis','flac'].includes(codec))return streamMediaFile(req,res,item.path)
+
+  // Chromium ne décode généralement pas AC3/E-AC3/DTS. La vidéo reste intacte et
+  // seul l'audio est converti en AAC stéréo, ce qui reste léger sur Raspberry Pi.
+  res.status(200).set({'Content-Type':'video/mp4','Cache-Control':'no-store','X-MoodFlix-Audio':'transcoded'})
+  const ffmpeg=spawn('ffmpeg',['-hide_banner','-loglevel','error','-i',item.path,'-map','0:v:0','-map','0:a:0?','-sn','-dn','-c:v','copy','-c:a','aac','-ac','2','-b:a','192k','-movflags','frag_keyframe+empty_moov+default_base_moof','-f','mp4','pipe:1'],{stdio:['ignore','pipe','pipe']})
+  ffmpeg.stdout.pipe(res)
+  ffmpeg.stderr.on('data',chunk=>console.error(`[ffmpeg audio] ${String(chunk).trim()}`))
+  ffmpeg.on('error',error=>{console.error('[ffmpeg audio]',error);if(!res.headersSent)res.status(500).end()})
+  res.on('close',()=>{if(!ffmpeg.killed)ffmpeg.kill('SIGTERM')})
+})
+
+app.get('/api/media/:id/raw', (req, res) => {
+  const item = db.prepare('SELECT path FROM media WHERE id=?').get(req.params.id) as { path?: string } | undefined
+  if (!item?.path || !fs.existsSync(item.path)) return res.status(404).json({ error: 'Fichier indisponible' })
+  return streamMediaFile(req,res,item.path)
 })
 app.put('/api/progress', (req, res) => {
   const data = z.object({ profileId: z.number().int(), mediaId: z.number().int(), position: z.number().nonnegative(), completed: z.boolean().default(false) }).parse(req.body)
@@ -246,7 +273,7 @@ app.get('/api/catalog/related', async (req,res,next)=>{
 
 app.get('/api/torrents', async (_req, res, next) => { try { res.json(await listTorrents()) } catch (e) { next(e) } })
 app.get('/api/torrents/search', async (req, res, next) => { try { res.json(await searchTorznab(String(req.query.q || ''), String(req.query.kind || 'all'))) } catch (e) { next(e) } })
-app.post('/api/torrents', async (req, res, next) => { try { const { url } = z.object({ url: z.string().min(5) }).parse(req.body); await addTorrent(url); res.status(201).json({ ok: true }) } catch (e) { next(e) } })
+app.post('/api/torrents', async (req, res, next) => { try { const { url } = z.object({ url: z.string().min(5) }).parse(req.body); res.status(201).json(await addTorrent(url)) } catch (e) { next(e) } })
 app.get('/api/torrents/search/qr', async (_req, res) => {
   const url = `http://${localIp()}:${port}/torrent-search`
   res.json({ url, qr: await QRCode.toDataURL(url, { margin: 1, width: 320, color: { dark: '#07111f', light: '#ffffff' } }) })
@@ -320,6 +347,4 @@ app.use((error: any, _req: express.Request, res: express.Response, _next: expres
 })
 app.listen(port, '0.0.0.0', () => console.log(`MoodFlix · http://0.0.0.0:${port}`))
 
-scanLibraries().catch(console.error)
-setInterval(() => {if(!isLibraryScanRunning())scanLibraries().catch(console.error)}, 30000)
 startCecBridge()

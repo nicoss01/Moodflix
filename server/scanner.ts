@@ -102,10 +102,10 @@ async function scanDirectories(directories:string[],resetAll:boolean,onProgress?
     const files:string[]=[]
     for(const directory of directories)await walk(directory,files,count=>{discovered=count;onProgress?.({phase:'discovering',current:count,total:0,percent:0,found:count,enriched:0})})
     markUnavailable(directories,resetAll)
-    const upsert=db.prepare(`INSERT INTO media(path,title,kind,series_title,season,episode,year,duration,genres,overview,available)
-      VALUES(@path,@title,@kind,@seriesTitle,@season,@episode,@year,@duration,'[]','',1)
-      ON CONFLICT(path) DO UPDATE SET available=1,title=CASE WHEN media.overview='' THEN excluded.title ELSE media.title END,duration=excluded.duration`)
-    const findMedia=db.prepare('SELECT overview,poster FROM media WHERE path=?')
+    const upsert=db.prepare(`INSERT INTO media(path,title,kind,series_title,season,episode,year,duration,genres,overview,available,file_size,file_mtime)
+      VALUES(@path,@title,@kind,@seriesTitle,@season,@episode,@year,@duration,'[]','',1,@fileSize,@fileMtime)
+      ON CONFLICT(path) DO UPDATE SET available=1,title=CASE WHEN media.overview='' THEN excluded.title ELSE media.title END,duration=excluded.duration,file_size=excluded.file_size,file_mtime=excluded.file_mtime`)
+    const findMedia=db.prepare('SELECT overview,poster,duration,file_size,file_mtime FROM media WHERE path=?')
     const enrich=db.prepare(`UPDATE media SET title=CASE WHEN overview='' THEN @title ELSE title END,series_title=COALESCE(@seriesTitle,series_title),year=COALESCE(@year,year),age_rating=@ageRating,genres=@genres,overview=CASE WHEN overview='' THEN @overview ELSE overview END,poster=CASE WHEN poster IS NULL OR poster='' THEN @poster ELSE poster END WHERE path=@path`)
     const updatePoster=db.prepare('UPDATE media SET poster=? WHERE path=?')
     let enriched=0,current=0,found=0
@@ -113,11 +113,13 @@ async function scanDirectories(directories:string[],resetAll:boolean,onProgress?
       const identity=parseMediaName(file)
       let latest:ScanProgress['latest']
       try{
-        const mediaDuration=await probeVideo(file)
+        const existing=findMedia.get(file) as {overview:string;poster:string|null;duration:number;file_size:number;file_mtime:number}|undefined
+        const stat=await fs.promises.stat(file)
+        const unchanged=Boolean(existing&&existing.file_size===stat.size&&existing.file_mtime===Math.round(stat.mtimeMs)&&existing.duration>=0)
+        const mediaDuration=unchanged?existing!.duration:await probeVideo(file)
         if(mediaDuration===null)continue
         found++
-        upsert.run({path:file,...identity,duration:mediaDuration})
-        const existing=findMedia.get(file) as {overview:string;poster:string|null}|undefined
+        upsert.run({path:file,...identity,duration:mediaDuration,fileSize:stat.size,fileMtime:Math.round(stat.mtimeMs)})
         if(existing?.poster&&/^https?:\/\//i.test(existing.poster)){try{const cached=await cacheArtwork(existing.poster);if(cached!==existing.poster)updatePoster.run(cached,file)}catch{}}
         const lastAttempt=metadataAttempts.get(file)||0
         if(getSetting('OMDB_API_KEY')&&(!existing?.overview||!existing?.poster)&&Date.now()-lastAttempt>=METADATA_RETRY_MS){
