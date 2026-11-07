@@ -1186,6 +1186,8 @@ function RecommendationPreferencesPage() {
   )
 }
 
+const LOCAL_MEDIA_LONG_PRESS_MS = 1100
+
 function LocalMediaCard({item, id, className = 'media-card', style, children, onActivate, onLongPress}: {item: Media; id?: string; className?: string; style?: ReturnType<typeof mediaArt>; children: any; onActivate?: () => void; onLongPress: (item: Media) => void}) {
   const nav = useNavigate(),
     timer = useRef<ReturnType<typeof setTimeout> | null>(null),
@@ -1203,7 +1205,7 @@ function LocalMediaCard({item, id, className = 'media-card', style, children, on
       timer.current = null
       longTriggered.current = true
       onLongPress(item)
-    }, 800)
+    }, LOCAL_MEDIA_LONG_PRESS_MS)
   }
   const activate = () => (onActivate ? onActivate() : nav(localDetailPath(item)))
   useEffect(() => clear, [])
@@ -1664,7 +1666,7 @@ function LocalSeriesCard({series, autoFocus, onLongPress}: {series: SeriesGroup;
       timer.current = null
       longTriggered.current = true
       onLongPress(series)
-    }, 800)
+    }, LOCAL_MEDIA_LONG_PRESS_MS)
   }
   const activate = () => nav(`/details/series?title=${encodeURIComponent(series.title)}`)
   useEffect(() => clear, [])
