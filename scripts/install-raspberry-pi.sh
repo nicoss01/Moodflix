@@ -102,6 +102,9 @@ configure_services() {
   render_unit "$APP_DIR/systemd/moodflix-qbittorrent.service" /etc/systemd/system/moodflix-qbittorrent.service
   chmod +x "$APP_DIR/scripts/start-kiosk.sh"
   sudo usermod -aG video,render,input "$CURRENT_USER"
+  printf '%s ALL=(root) NOPASSWD: /usr/bin/systemctl reboot\n' "$CURRENT_USER" | sudo tee /etc/sudoers.d/moodflix-reboot >/dev/null
+  sudo chmod 0440 /etc/sudoers.d/moodflix-reboot
+  sudo visudo -cf /etc/sudoers.d/moodflix-reboot
   sudo systemctl daemon-reload
   sudo systemctl reset-failed moodflix-kiosk.service || true
 }

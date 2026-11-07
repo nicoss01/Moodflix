@@ -4,6 +4,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { EventEmitter } from 'node:events'
+import { spawn } from 'node:child_process'
 import QRCode from 'qrcode'
 import { z } from 'zod'
 import { db, getSetting, setSetting } from './db.js'
@@ -238,6 +239,18 @@ app.post('/api/update/apply', async (req, res, next) => {
     res.json({ ok: true, status, restarting })
     if (restarting) setTimeout(() => process.exit(0), 1200)
   } catch (e) { next(e) }
+})
+app.post('/api/system/reboot', (req, res, next) => {
+  try {
+    z.object({ confirm:z.literal('RESTART') }).parse(req.body)
+    if(process.platform!=='linux')return res.status(501).json({error:'Le redémarrage système est disponible uniquement sur le Raspberry Pi.'})
+    res.status(202).json({ok:true})
+    setTimeout(()=>{
+      const child=spawn('/usr/bin/sudo',['-n','/usr/bin/systemctl','reboot'],{detached:true,stdio:'ignore'})
+      child.on('error',error=>console.error('Impossible de redémarrer le système',error))
+      child.unref()
+    },600)
+  } catch(e){next(e)}
 })
 app.get('/api/setup/qr', async (_req, res) => {
   const url = `http://${localIp()}:${port}/settings?onboarding=1`

@@ -47,5 +47,6 @@ export const api = {
   testTorznab: (url:string,apiKey:string) => request<TorznabTestResult>('/settings/torznab/test', { method:'POST', body:JSON.stringify({url,apiKey}) }),
   testOmdb: (apiKey:string) => request<OmdbTestResult>('/settings/omdb/test', { method:'POST', body:JSON.stringify({apiKey}) }),
   checkUpdate: () => request<UpdateStatus>('/update/check'),
-  applyUpdate: () => request<{ok:boolean;status:UpdateStatus;restarting:boolean}>('/update/apply', { method:'POST', body:JSON.stringify({confirm:true}) })
+  applyUpdate: () => request<{ok:boolean;status:UpdateStatus;restarting:boolean}>('/update/apply', { method:'POST', body:JSON.stringify({confirm:true}) }),
+  restartSystem: () => request<{ok:boolean}>('/system/reboot', { method:'POST', body:JSON.stringify({confirm:'RESTART'}) })
 }
