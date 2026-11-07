@@ -13,6 +13,7 @@ import { db, getSetting, setSetting } from './db.js'
 import { detectDrives, isLibraryScanRunning, scanDrive, scanLibraries, type ScanProgress } from './scanner.js'
 import { addTorrent, listTorrents, searchTorznab, testQbit, testTorznab } from './torrents.js'
 import { startCompletedTorrentMonitor } from './torrent-importer.js'
+import { beginPlaybackStream, touchPlayback } from './playback-state.js'
 import { remoteEvents, startCecBridge } from './cec.js'
 import { applyUpdate, checkForUpdate, isUpdateRunning } from './updater.js'
 import { artworkDir, testOmdb } from './omdb.js'
@@ -162,6 +163,9 @@ app.post('/api/library/drives/scan',async(req,res,next)=>{
 })
 app.get('/api/library/drives/scan/:id',(req,res)=>{const job=libraryScanJobs.get(req.params.id);if(!job)return res.status(404).json({error:'Analyse introuvable ou terminée depuis trop longtemps.'});res.json(job)})
 function streamMediaFile(req:any,res:any,file:string){
+  const endPlayback=beginPlaybackStream()
+  res.once('close',endPlayback)
+  res.once('finish',endPlayback)
   const stat = fs.statSync(file), range = req.headers.range
   if (!range) { res.set({ 'Content-Length':String(stat.size), 'Content-Type':mediaContentType(file), 'Accept-Ranges':'bytes' }); return fs.createReadStream(file).pipe(res) }
   const [startText, endText] = range.replace(/bytes=/, '').split('-')
@@ -185,11 +189,13 @@ app.get('/api/media/:id/stream', async (req, res) => {
   // FFmpeg démarre directement au timecode demandé. Cela rend la reprise et le
   // déplacement fiables même pour les pistes AC3/E-AC3/DTS non décodées par Chromium.
   res.status(200).set({'Content-Type':'video/mp4','Cache-Control':'no-store','X-MoodFlix-Audio':'transcoded','X-MoodFlix-Start':String(start)})
+  const endPlayback=beginPlaybackStream()
   const ffmpeg=spawn('ffmpeg',['-hide_banner','-loglevel','error',...(start>=.5?['-ss',String(start)]:[]),'-i',item.path,'-map','0:v:0','-map','0:a:0?','-sn','-dn','-c:v','copy','-c:a','aac','-ac','2','-b:a','192k','-avoid_negative_ts','make_zero','-movflags','frag_keyframe+empty_moov+default_base_moof','-f','mp4','pipe:1'],{stdio:['ignore','pipe','pipe']})
   ffmpeg.stdout.pipe(res)
   ffmpeg.stderr.on('data',chunk=>console.error(`[ffmpeg audio] ${String(chunk).trim()}`))
   ffmpeg.on('error',error=>{console.error('[ffmpeg audio]',error);if(!res.headersSent)res.status(500).end()})
-  res.on('close',()=>{if(!ffmpeg.killed)ffmpeg.kill('SIGTERM')})
+  res.on('close',()=>{endPlayback();if(!ffmpeg.killed)ffmpeg.kill('SIGTERM')})
+  res.on('finish',endPlayback)
 })
 
 app.get('/api/media/:id/raw', (req, res) => {
@@ -198,6 +204,7 @@ app.get('/api/media/:id/raw', (req, res) => {
   return streamMediaFile(req,res,item.path)
 })
 app.put('/api/progress', (req, res) => {
+  touchPlayback()
   const data = z.object({ profileId: z.number().int(), mediaId: z.number().int(), position: z.number().nonnegative(), completed: z.boolean().default(false) }).parse(req.body)
   const media=db.prepare('SELECT duration FROM media WHERE id=?').get(data.mediaId) as {duration:number}|undefined
   if(!media)return res.status(404).json({error:'Média introuvable'})
@@ -279,7 +286,7 @@ app.get('/api/catalog/related', async (req,res,next)=>{
   }catch(e){next(e)}
 })
 
-app.get('/api/torrents', async (_req, res, next) => { try { res.json(await listTorrents()) } catch (e) { next(e) } })
+app.get('/api/torrents', async (_req, res, next) => { try { const items=await listTorrents() as any[];res.json(items.map(item=>({hash:item.hash,name:item.name,progress:item.progress,state:item.state,num_seeds:item.num_seeds,num_leechs:item.num_leechs,eta:item.eta,dlspeed:item.dlspeed,upspeed:item.upspeed}))) } catch (e) { next(e) } })
 app.get('/api/torrents/search', async (req, res, next) => { try { res.json(await searchTorznab(String(req.query.q || ''), String(req.query.kind || 'all'))) } catch (e) { next(e) } })
 app.post('/api/torrents', async (req, res, next) => { try { const { url } = z.object({ url: z.string().min(5) }).parse(req.body); res.status(201).json(await addTorrent(url)) } catch (e) { next(e) } })
 app.get('/api/torrents/search/qr', async (_req, res) => {

@@ -2,6 +2,7 @@ import path from 'node:path'
 import {db, getSetting} from './db.js'
 import {isLibraryScanRunning, scanDownloadedContent} from './scanner.js'
 import {listTorrents} from './torrents.js'
+import {isPlaybackActive} from './playback-state.js'
 
 export type CompletedTorrent={hash:string;name:string;progress:number;amount_left?:number;category?:string;content_path?:string;save_path?:string;state?:string}
 
@@ -12,7 +13,7 @@ export function completedMoodflixTorrents(items:CompletedTorrent[]){
 let running=false,lastError=''
 
 export async function importCompletedTorrents(){
-  if(running||isLibraryScanRunning())return
+  if(running||isLibraryScanRunning()||isPlaybackActive())return
   running=true
   try{
     const completed=completedMoodflixTorrents(await listTorrents() as CompletedTorrent[])

@@ -11,6 +11,10 @@ Environment=HOME=__HOME__
 ExecStart=/usr/bin/qbittorrent-nox --webui-port=8080 --confirm-legal-notice
 Restart=on-failure
 RestartSec=5
+Nice=10
+CPUWeight=25
+IOWeight=25
+IOSchedulingClass=idle
 
 [Install]
 WantedBy=multi-user.target

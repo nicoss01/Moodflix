@@ -1,4 +1,4 @@
-import {useEffect, useMemo, useRef, useState} from 'react'
+import {startTransition, useEffect, useMemo, useRef, useState} from 'react'
 import {createPortal} from 'react-dom'
 import {Routes, Route, useLocation, useNavigate, NavLink, Navigate} from 'react-router-dom'
 import {ArrowLeft, Captions, Check, ChevronDown, ChevronLeft, ChevronRight, CircleUserRound, Dice5, Download, Eye, EyeOff, Film, Gamepad2, Gauge, GitCommitHorizontal, HardDrive, Headphones, Home, Info, Keyboard, Languages, ListVideo, LoaderCircle, MonitorCog, Pause, PawPrint, Play, Plus, Power, QrCode, RefreshCw, Rocket, Search, Send, Settings, ShieldCheck, SkipBack, SkipForward, Sparkles, Star, Subtitles, Trash2, Tv, Upload, UserPlus, UserRound, Volume2, VolumeX, X} from 'lucide-react'
@@ -2674,22 +2674,27 @@ function Torrents() {
   useEffect(() => {
     if (tab === 'search') return
     let current = true,
+      refreshing = false,
       timer: ReturnType<typeof setInterval>
-    const refresh = () =>
-      api
-        .torrents()
-        .then((items) => {
-          if (current) setJobs(items)
-        })
-        .catch((e) => {
-          if (current) setError(e.message)
-        })
+    const signature=(items:any[])=>items.map(item=>`${item.hash}:${item.progress}:${item.state}:${item.num_seeds}:${item.num_leechs}:${item.eta}:${item.dlspeed}:${item.upspeed}`).join('|')
+    const refresh = async () => {
+      if(refreshing||document.hidden)return
+      refreshing=true
+      try{
+        const items=await api.torrents()
+        if(current)startTransition(()=>setJobs(previous=>signature(previous)===signature(items)?previous:items))
+      }catch(e:any){if(current)setError(e.message)}
+      finally{refreshing=false}
+    }
+    const onVisibility=()=>{if(!document.hidden)void refresh()}
     setError('')
-    refresh()
-    timer = setInterval(refresh, 2000)
+    void refresh()
+    timer = setInterval(()=>void refresh(), 5000)
+    document.addEventListener('visibilitychange',onVisibility)
     return () => {
       current = false
       clearInterval(timer)
+      document.removeEventListener('visibilitychange',onVisibility)
     }
   }, [tab])
   useEffect(() => {

@@ -3,6 +3,10 @@ import { getSetting } from './db.js'
 
 let qbitCookie = ''
 let qbitCookieBase = ''
+let torrentCache:any[]=[]
+let torrentCacheAt=0
+let torrentRequest:Promise<any[]>|null=null
+const TORRENT_CACHE_MS=2500
 
 export function resolveQbitBase(configured:string){
   const value=configured.trim()||'http://127.0.0.1:8080'
@@ -52,9 +56,17 @@ async function qbit(path: string, init: RequestInit = {}) {
   return response
 }
 
-export async function listTorrents() {
-  const response = await qbit('/api/v2/torrents/info')
-  return response.json()
+export async function listTorrents(force=false) {
+  if(!force&&torrentCacheAt&&Date.now()-torrentCacheAt<TORRENT_CACHE_MS)return torrentCache
+  if(torrentRequest)return torrentRequest
+  torrentRequest=(async()=>{
+    const response=await qbit('/api/v2/torrents/info')
+    const items=await response.json() as any[]
+    torrentCache=items
+    torrentCacheAt=Date.now()
+    return items
+  })()
+  try{return await torrentRequest}finally{torrentRequest=null}
 }
 
 type QbitTorrent={hash:string;name:string;progress:number;state:string;[key:string]:unknown}
@@ -89,7 +101,7 @@ async function fillTorrentForm(form:FormData,url:string){
 }
 
 export async function addTorrent(url: string) {
-  const before=await listTorrents() as QbitTorrent[]
+  const before=await listTorrents(true) as QbitTorrent[]
   const previousHashes=new Set(before.map(item=>String(item.hash).toLowerCase()))
   const expectedHash=magnetInfoHash(url)
   const form = new FormData()
@@ -103,7 +115,7 @@ export async function addTorrent(url: string) {
   // Ne confirmer à l'interface qu'après l'avoir réellement retrouvé dans la liste.
   for(let attempt=0;attempt<15;attempt++){
     if(attempt)await wait(400)
-    const current=await listTorrents() as QbitTorrent[]
+    const current=await listTorrents(true) as QbitTorrent[]
     const torrent=(expectedHash&&current.find(item=>String(item.hash).toLowerCase()===expectedHash))
       ||current.find(item=>!previousHashes.has(String(item.hash).toLowerCase()))
     if(torrent)return{ok:true,torrent,duplicate:false}
