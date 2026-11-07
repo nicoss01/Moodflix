@@ -14,6 +14,7 @@ import { detectDrives, isLibraryScanRunning, scanDrive, scanLibraries, type Scan
 import { addTorrent, listTorrents, searchTorznab, testQbit, testTorznab } from './torrents.js'
 import { startCompletedTorrentMonitor } from './torrent-importer.js'
 import { beginPlaybackStream, touchPlayback } from './playback-state.js'
+import { touchUiActivity } from './activity-state.js'
 import { remoteEvents, startCecBridge } from './cec.js'
 import { applyUpdate, checkForUpdate, isUpdateRunning } from './updater.js'
 import { artworkDir, testOmdb } from './omdb.js'
@@ -362,5 +363,6 @@ app.use((error: any, _req: express.Request, res: express.Response, _next: expres
 })
 app.listen(port, '0.0.0.0', () => console.log(`MoodFlix · http://0.0.0.0:${port}`))
 
+remoteEvents.on('key',touchUiActivity)
 startCecBridge()
 startCompletedTorrentMonitor()

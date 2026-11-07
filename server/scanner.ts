@@ -21,7 +21,10 @@ export function isVideoCandidate(filename:string){
 
 async function walk(dir:string,files:string[]=[],onFound?:(count:number)=>void):Promise<string[]>{
   let entries:fs.Dirent[]
-  try{entries=await fs.promises.readdir(dir,{withFileTypes:true})}catch{return files}
+  try{entries=await fs.promises.readdir(dir,{withFileTypes:true})}catch{
+    try{const stat=await fs.promises.stat(dir);if(stat.isFile()&&isVideoCandidate(dir)){files.push(dir);onFound?.(files.length)}}catch{}
+    return files
+  }
   for(const entry of entries){
     const full=path.join(dir,entry.name)
     if(entry.isDirectory()&&!SKIPPED_DIRECTORIES.has(entry.name.toLowerCase()))await walk(full,files,onFound)
@@ -156,9 +159,8 @@ export async function scanLibraries(extraDirs:string[]=[]){
 
 export async function scanDownloadedContent(contentPath:string){
   const resolved=path.resolve(contentPath)
-  const stat=await fs.promises.stat(resolved)
-  const directory=stat.isDirectory()?resolved:path.dirname(resolved)
-  return scanDirectories([directory],false)
+  await fs.promises.access(resolved,fs.constants.R_OK)
+  return scanDirectories([resolved],false)
 }
 
 export async function scanDrive(device:string,onProgress?:(progress:ScanProgress)=>void){

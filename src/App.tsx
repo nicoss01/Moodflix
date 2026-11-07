@@ -2675,26 +2675,33 @@ function Torrents() {
     if (tab === 'search') return
     let current = true,
       refreshing = false,
+      lastInteraction = performance.now(),
       timer: ReturnType<typeof setInterval>
     const signature=(items:any[])=>items.map(item=>`${item.hash}:${item.progress}:${item.state}:${item.num_seeds}:${item.num_leechs}:${item.eta}:${item.dlspeed}:${item.upspeed}`).join('|')
     const refresh = async () => {
-      if(refreshing||document.hidden)return
+      if(refreshing||document.hidden||performance.now()-lastInteraction<1500)return
       refreshing=true
       try{
         const items=await api.torrents()
-        if(current)startTransition(()=>setJobs(previous=>signature(previous)===signature(items)?previous:items))
+        if(current&&performance.now()-lastInteraction>=1000)startTransition(()=>setJobs(previous=>signature(previous)===signature(items)?previous:items))
       }catch(e:any){if(current)setError(e.message)}
       finally{refreshing=false}
     }
+    const noteInteraction=()=>{lastInteraction=performance.now()}
     const onVisibility=()=>{if(!document.hidden)void refresh()}
     setError('')
-    void refresh()
+    const initial=setTimeout(()=>void refresh(),1600)
     timer = setInterval(()=>void refresh(), 5000)
     document.addEventListener('visibilitychange',onVisibility)
+    window.addEventListener('keydown',noteInteraction,{capture:true})
+    window.addEventListener('pointerdown',noteInteraction,{capture:true})
     return () => {
       current = false
+      clearTimeout(initial)
       clearInterval(timer)
       document.removeEventListener('visibilitychange',onVisibility)
+      window.removeEventListener('keydown',noteInteraction,{capture:true})
+      window.removeEventListener('pointerdown',noteInteraction,{capture:true})
     }
   }, [tab])
   useEffect(() => {
