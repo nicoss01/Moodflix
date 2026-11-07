@@ -148,7 +148,7 @@ app.post('/api/recommendations', (req, res) => {
   res.json({ ageLimit: age, items: media })
 })
 app.get('/api/recommendations/profile/:id', async (req, res, next) => {
-  try { res.json(await getRecommendationsForProfile(Number(req.params.id))) }
+  try { const page=z.coerce.number().int().min(1).max(10).default(1).parse(req.query.page);res.json(await getRecommendationsForProfile(Number(req.params.id),page)) }
   catch (e) { next(e) }
 })
 app.get('/api/profiles/:id/preferences', (req, res, next) => {

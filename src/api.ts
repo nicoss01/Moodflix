@@ -24,7 +24,7 @@ export const api = {
   mediaById: (id:string) => request<Media>(`/media/${id}`),
   scan: () => request<{found:number;directories:string[];enriched:number}>('/library/scan', { method:'POST' }),
   recommend: (body:object) => request<{ageLimit:number;items:Media[]}>('/recommendations', { method:'POST', body:JSON.stringify(body) }),
-  profileRecommendations: (profileId:number) => request<{profile:Profile;preferences:{selectedGenres:string[];inferredGenres:string[]};source:'tmdb'|'library';items:Recommendation[]}>(`/recommendations/profile/${profileId}`),
+  profileRecommendations: (profileId:number,page=1) => request<{profile:Profile;preferences:{selectedGenres:string[];inferredGenres:string[]};source:'tmdb'|'library';items:Recommendation[];page:number;hasMore:boolean}>(`/recommendations/profile/${profileId}?page=${page}`),
   profilePreferences: (profileId:number) => request<ProfilePreferences>(`/profiles/${profileId}/preferences`),
   saveProfilePreferences: (profileId:number,genres:string[]) => request<ProfilePreferences>(`/profiles/${profileId}/preferences`, { method:'PUT', body:JSON.stringify({genres}) }),
   recommendationPreferencesQr: (profileId:number) => request<{url:string;qr:string}>(`/recommendations/preferences/qr?profileId=${profileId}`),

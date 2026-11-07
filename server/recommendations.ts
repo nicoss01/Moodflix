@@ -85,11 +85,11 @@ function tmdbItems(results:any[],kind:'movie'|'series',weights:Record<string,num
   return results.filter(item=>!item.adult).map(item=>{const genres=(item.genre_ids||[]).map((id:number)=>names[id]).filter(Boolean);const title=kind==='movie'?item.title:item.name;const date=kind==='movie'?item.release_date:item.first_air_date;return {id:`tmdb:${kind}:${item.id}`,title,kind,year:Number(String(date||'').slice(0,4))||0,genres,overview:item.overview||'',poster:item.poster_path?`https://image.tmdb.org/t/p/w500${item.poster_path}`:undefined,backdrop:item.backdrop_path?`https://image.tmdb.org/t/p/w1280${item.backdrop_path}`:undefined,age_rating:maxAge,score:scoreGenres(genres,weights)+(Number(item.vote_average)||0)/5,reason:reasonFor(genres,weights),available:false,source:'tmdb' as const}})
 }
 
-async function tmdbRecommendations(profile:ProfileRow,weights:Record<string,number>){
+async function tmdbRecommendations(profile:ProfileRow,weights:Record<string,number>,page=1){
   const credential=getSetting('TMDB_API_KEY').trim();if(!credential)return[]
   const wanted=Object.entries(weights).filter(([,weight])=>weight>0).sort((a,b)=>b[1]-a[1]).slice(0,5).map(([genre])=>genre)
   const ids=(map:Record<number,string>)=>Object.entries(map).filter(([,genre])=>wanted.includes(genre)).map(([id])=>id).join('|')
-  const common={language:'fr-FR',page:'1',sort_by:'vote_average.desc','vote_count.gte':'80',include_adult:'false'}
+  const common={language:'fr-FR',page:String(page),sort_by:'vote_average.desc','vote_count.gte':'80',include_adult:'false'}
   const calls=[tmdbRequest('/discover/movie',{...common,region:'FR',certification_country:'FR','certification.lte':certificationLimit(profile.max_age),with_genres:ids(movieGenres)},credential)]
   // La découverte TV ne renvoie pas de classification : elle reste réservée aux profils adultes.
   if(profile.max_age>=18)calls.push(tmdbRequest('/discover/tv',{...common,with_genres:ids(tvGenres)},credential))
@@ -99,13 +99,13 @@ async function tmdbRecommendations(profile:ProfileRow,weights:Record<string,numb
   return items
 }
 
-export async function getRecommendationsForProfile(profileId:number){
+export async function getRecommendationsForProfile(profileId:number,page=1){
   const profile=profileOrThrow(profileId), preferences=getProfilePreferences(profileId), local=localRecommendations(profile,preferences.weights)
-  let remote:Recommendation[]=[];try{remote=await tmdbRecommendations(profile,preferences.weights)}catch{}
+  let remote:Recommendation[]=[];try{remote=await tmdbRecommendations(profile,preferences.weights,page)}catch{}
   const localTitles=new Set((db.prepare('SELECT title FROM media WHERE available=1').all() as {title:string}[]).map(item=>clean(item.title)))
   const remoteUnique=remote.filter(item=>!localTitles.has(clean(item.title))).sort((a,b)=>b.score-a.score)
-  const items=[...remoteUnique.slice(0,18),...local.slice(0,6)].slice(0,24)
-  return {profile,preferences:{selectedGenres:preferences.selectedGenres,inferredGenres:preferences.inferredGenres},source:remoteUnique.length?'tmdb':'library',items}
+  const remotePage=remoteUnique.slice(0,24),items=page===1?[...remotePage,...local.slice(0,6)].slice(0,24):remotePage
+  return {profile,preferences:{selectedGenres:preferences.selectedGenres,inferredGenres:preferences.inferredGenres},source:remoteUnique.length?'tmdb':'library',items,page,hasMore:remoteUnique.length>=20&&page<10}
 }
 
 function ageFromCertification(value:string){
@@ -143,8 +143,14 @@ export async function getTrending(kind:'movie'|'series',profileId?:number){
   const credential=getSetting('TMDB_API_KEY').trim();if(!credential)return[]
   const profile=profileId?profileOrThrow(profileId):null,maxAge=profile?.max_age||18,type=kind==='series'?'tv':'movie'
   const data=await tmdbRequest(`/trending/${type}/week`,{language:'fr-FR'},credential,3*60*60*1000)
-  const filtered=await filterForAge(data.results||[],kind,maxAge,credential)
+  const released=onlyReleased(data.results||[],kind)
+  const filtered=await filterForAge(released,kind,maxAge,credential)
   return tmdbItems(filtered,kind,{},maxAge).map((item,index)=>({...item,age_rating:filtered[index]?._age??maxAge,reason:kind==='movie'?'Parmi les films tendance cette semaine':'Parmi les séries tendance cette semaine'}))
+}
+
+export function onlyReleased(results:any[],kind:'movie'|'series',today=new Date().toISOString().slice(0,10)){
+  const field=kind==='movie'?'release_date':'first_air_date'
+  return results.filter(item=>typeof item?.[field]==='string'&&item[field]&&item[field]<=today)
 }
 
 export async function getRelated(input:{kind:'movie'|'series';tmdbId?:number;title?:string;year?:number;profileId?:number}){
