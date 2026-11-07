@@ -57,10 +57,12 @@ export function mapOmdbMetadata(data: OmdbResponse, identity: MediaIdentity) {
   }
 }
 
-async function requestOmdb(params: Record<string,string>, apiKey: string) {
+async function requestOmdb(params: Record<string,string>, apiKey: string, force=false) {
   const cacheKey=`omdb:${createHash('sha256').update(JSON.stringify(Object.entries(params).sort())).digest('hex')}`
-  const cached=db.prepare('SELECT payload FROM metadata_cache WHERE cache_key=? AND expires_at>?').get(cacheKey,Date.now()) as {payload:string}|undefined
-  if(cached)return JSON.parse(cached.payload) as OmdbResponse|null
+  if(!force){
+    const cached=db.prepare('SELECT payload FROM metadata_cache WHERE cache_key=? AND expires_at>?').get(cacheKey,Date.now()) as {payload:string}|undefined
+    if(cached)return JSON.parse(cached.payload) as OmdbResponse|null
+  }
   const url = new URL('https://www.omdbapi.com/')
   url.searchParams.set('apikey', apiKey)
   url.searchParams.set('r', 'json')
@@ -96,20 +98,21 @@ export async function cacheArtwork(url:string){
   }catch{return url}
 }
 
-export async function lookupOmdb(identity: MediaIdentity) {
+export async function lookupOmdb(identity: MediaIdentity, force=false) {
   const apiKey = getSetting('OMDB_API_KEY').trim()
   if (!apiKey) return null
+  const isEpisode=identity.kind==='series'&&Boolean(identity.season&&identity.episode)
   const params: Record<string,string> = {
     t: identity.kind === 'series' ? identity.seriesTitle || identity.title : identity.title,
-    type: identity.kind === 'series' ? 'episode' : 'movie'
+    type: identity.kind === 'series' ? (isEpisode?'episode':'series') : 'movie'
   }
   if (identity.year && identity.kind === 'movie') params.y = String(identity.year)
   if (identity.kind === 'series' && identity.season && identity.episode) {
     params.Season = String(identity.season)
     params.Episode = String(identity.episode)
   }
-  let data = await requestOmdb(params, apiKey)
-  if (!data && identity.kind === 'series') data = await requestOmdb({ t: identity.seriesTitle || identity.title, type: 'series' }, apiKey)
+  let data = await requestOmdb(params, apiKey, force)
+  if (!data && identity.kind === 'series'&&isEpisode) data = await requestOmdb({ t: identity.seriesTitle || identity.title, type: 'series' }, apiKey, force)
   if(!data)return null
   const metadata=mapOmdbMetadata(data, identity)
   if(metadata.poster)metadata.poster=await cacheArtwork(metadata.poster)

@@ -95,11 +95,24 @@ async function probeVideo(file:string):Promise<number>{
   }catch{return 0}
 }
 
-function markUnavailable(directories:string[],all:boolean){
-  if(all){db.prepare('UPDATE media SET available=0 WHERE path IS NOT NULL').run();return}
+const canonicalPath=(value:string)=>{
+  const resolved=path.resolve(value)
+  return process.platform==='win32'?resolved.toLocaleLowerCase('en-US'):resolved
+}
+
+export function unavailableMediaIds(rows:{id:number;path:string}[],directories:string[],scannedFiles:string[],all:boolean){
+  const roots=directories.map(canonicalPath),found=new Set(scannedFiles.map(canonicalPath))
+  return rows.filter(row=>{
+    const item=canonicalPath(row.path)
+    const inScope=all||roots.some(root=>item===root||item.startsWith(root+path.sep))
+    return inScope&&!found.has(item)
+  }).map(row=>row.id)
+}
+
+function reconcileAvailability(directories:string[],scannedFiles:string[],all:boolean){
   const rows=db.prepare('SELECT id,path FROM media WHERE path IS NOT NULL').all() as {id:number;path:string}[]
-  const roots=directories.map(directory=>path.resolve(directory)),update=db.prepare('UPDATE media SET available=0 WHERE id=?')
-  db.transaction(()=>{for(const row of rows){const item=path.resolve(row.path);if(roots.some(root=>item===root||item.startsWith(root+path.sep)))update.run(row.id)}})()
+  const ids=unavailableMediaIds(rows,directories,scannedFiles,all),update=db.prepare('UPDATE media SET available=0 WHERE id=?')
+  db.transaction(()=>{for(const id of ids)update.run(id)})()
 }
 
 async function scanDirectories(directories:string[],resetAll:boolean,onProgress?:(progress:ScanProgress)=>void,lockAcquired=false,forceProbe=false){
@@ -112,7 +125,6 @@ async function scanDirectories(directories:string[],resetAll:boolean,onProgress?
     onProgress?.({phase:'discovering',current:0,total:0,percent:0,found:0,enriched:0})
     const files:string[]=[]
     for(const directory of directories)await walk(directory,files,count=>{discovered=count;onProgress?.({phase:'discovering',current:count,total:0,percent:0,found:count,enriched:0})})
-    markUnavailable(directories,resetAll)
     const upsert=db.prepare(`INSERT INTO media(path,title,kind,series_title,season,episode,year,duration,genres,overview,available,file_size,file_mtime)
       VALUES(@path,@title,@kind,@seriesTitle,@season,@episode,@year,@duration,'[]','',1,@fileSize,@fileMtime)
       ON CONFLICT(path) DO UPDATE SET available=1,title=CASE WHEN media.overview='' THEN excluded.title ELSE media.title END,kind=excluded.kind,series_title=excluded.series_title,season=excluded.season,episode=excluded.episode,year=COALESCE(excluded.year,media.year),duration=excluded.duration,file_size=excluded.file_size,file_mtime=excluded.file_mtime`)
@@ -143,6 +155,9 @@ async function scanDirectories(directories:string[],resetAll:boolean,onProgress?
         onProgress?.({phase:'scanning',current,total:files.length,percent:files.length?Math.round(current/files.length*100):100,found,enriched,latest})
       }
     }
+    // Ne retire les anciens médias qu'après une analyse complète. La bibliothèque
+    // reste ainsi visible pendant le parcours d'un disque externe volumineux.
+    reconcileAvailability(directories,files,resetAll)
     const result={directories,found,enriched}
     onProgress?.({phase:'complete',current:files.length,total:files.length,percent:100,found,enriched})
     return result

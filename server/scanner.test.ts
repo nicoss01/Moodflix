@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import path from 'node:path'
-import { isVideoCandidate, parseLsblk, parseMediaName, uniqueScanDirectories } from './scanner.js'
+import { isVideoCandidate, parseLsblk, parseMediaName, unavailableMediaIds, uniqueScanDirectories } from './scanner.js'
 
 describe('parseMediaName', () => {
   it('reconnaît les films et leur année', () => {
@@ -42,5 +42,17 @@ describe('uniqueScanDirectories',()=>{
   it('inclut le dossier de téléchargement sans rescanner un sous-dossier déjà couvert',()=>{
     const media=path.resolve('srv','media'),downloads=path.join(media,'downloads'),usb=path.resolve('media','usb')
     expect(uniqueScanDirectories([media,downloads,usb,media])).toEqual([media,usb])
+  })
+})
+
+describe('unavailableMediaIds',()=>{
+  it('conserve les fichiers trouvés jusqu’à la réconciliation finale',()=>{
+    const root=path.resolve('media','usb'),present=path.join(root,'Series','episode.mkv'),missing=path.join(root,'Film.mkv')
+    expect(unavailableMediaIds([{id:1,path:present},{id:2,path:missing}], [root], [present], true)).toEqual([2])
+  })
+
+  it('ne modifie pas les médias situés hors d’une analyse partielle',()=>{
+    const root=path.resolve('downloads'),outside=path.resolve('media','usb','Film.mkv')
+    expect(unavailableMediaIds([{id:1,path:outside}], [root], [], false)).toEqual([])
   })
 })

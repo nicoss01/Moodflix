@@ -27,6 +27,8 @@ export const api = {
   media: (kind?:string,profileId?:number) => { const query=new URLSearchParams();if(kind)query.set('kind',kind);if(profileId)query.set('profileId',String(profileId));return request<Media[]>(`/media${query.size?`?${query}`:''}`) },
   series: (profileId?:number) => request<SeriesGroup[]>(`/series${profileId?`?profileId=${profileId}`:''}`),
   mediaById: (id:string) => request<Media>(`/media/${id}`),
+  enrichMedia: (id:number) => request<{id:number;title:string}>(`/media/${id}/enrich`, { method:'POST' }),
+  enrichSeries: (title:string) => request<{title:string;updated:number}>('/series/enrich', { method:'POST', body:JSON.stringify({title}) }),
   setMediaHidden: (id:number,hidden=true) => request<{ok:boolean;hidden:boolean}>(`/media/${id}/visibility`, { method:'PUT', body:JSON.stringify({hidden}) }),
   deleteMediaFile: (id:number) => request<{ok:boolean}>(`/media/${id}/file`, { method:'DELETE', body:JSON.stringify({confirm:true}) }),
   setSeriesHidden: (title:string,hidden=true) => request<{ok:boolean;hidden:boolean;count:number}>('/series/visibility', { method:'PUT', body:JSON.stringify({title,hidden}) }),

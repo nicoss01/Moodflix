@@ -21,6 +21,7 @@ import { artworkDir, testOmdb } from './omdb.js'
 import { getProfilePreferences, getRecommendationsForProfile, getRelated, getTrending, saveProfilePreferences } from './recommendations.js'
 import { hasBeenWatched, WATCHED_RATIO } from './progress.js'
 import { findEpisodeNeighbors, type EpisodeLink } from './episodes.js'
+import { forceEnrichMedia, forceEnrichSeries } from './enrichment.js'
 
 const app = express()
 const port = Number(process.env.PORT || 4242)
@@ -131,6 +132,8 @@ app.get('/api/media/:id', (req, res) => {
   if (!row) return res.status(404).json({ error: 'Média introuvable' })
   res.json(parseMedia(row))
 })
+app.post('/api/media/:id/enrich',async(req,res,next)=>{try{const id=z.coerce.number().int().positive().parse(req.params.id);res.json(await forceEnrichMedia(id))}catch(error){next(error)}})
+app.post('/api/series/enrich',async(req,res,next)=>{try{const {title}=z.object({title:z.string().trim().min(1)}).parse(req.body);res.json(await forceEnrichSeries(title))}catch(error){next(error)}})
 app.put('/api/media/:id/visibility',(req,res,next)=>{try{const {hidden}=z.object({hidden:z.boolean()}).parse(req.body);const result=db.prepare('UPDATE media SET hidden=? WHERE id=? AND path IS NOT NULL').run(Number(hidden),req.params.id);if(!result.changes)return res.status(404).json({error:'Média local introuvable'});res.json({ok:true,hidden})}catch(error){next(error)}})
 app.delete('/api/media/:id/file',async(req,res,next)=>{try{z.object({confirm:z.literal(true)}).parse(req.body);const item=db.prepare('SELECT id,path FROM media WHERE id=? AND path IS NOT NULL').get(req.params.id) as {id:number;path:string}|undefined;if(!item)return res.status(404).json({error:'Média local introuvable'});if(fs.existsSync(item.path))await fs.promises.unlink(item.path);db.transaction(()=>{db.prepare('DELETE FROM ratings WHERE media_id=?').run(item.id);db.prepare('DELETE FROM progress WHERE media_id=?').run(item.id);db.prepare('DELETE FROM media WHERE id=?').run(item.id)})();res.json({ok:true})}catch(error){next(error)}})
 app.get('/api/media/:id/neighbors',(req,res)=>{

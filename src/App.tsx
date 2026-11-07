@@ -1925,6 +1925,9 @@ function MediaDetailPage({profile}: {profile: Profile | null}) {
     [related, setRelated] = useState<Recommendation[]>([]),
     [selected, setSelected] = useState<Recommendation | null>(null),
     [action, setAction] = useState<MediaAction | null>(null),
+    [enriching, setEnriching] = useState(false),
+    [enrichmentStatus, setEnrichmentStatus] = useState(''),
+    [enrichmentError, setEnrichmentError] = useState(''),
     [error, setError] = useState('')
   useEffect(() => {
     let active = true
@@ -1944,6 +1947,15 @@ function MediaDetailPage({profile}: {profile: Profile | null}) {
       active = false
     }
   }, [id, profile?.id])
+  const refreshMetadata=async()=>{
+    if(!item||enriching)return
+    setEnriching(true);setEnrichmentStatus('');setEnrichmentError('')
+    try{
+      await api.enrichMedia(item.id)
+      setItem(await api.mediaById(String(item.id)))
+      setEnrichmentStatus('Informations mises à jour depuis OMDb.')
+    }catch(e:any){setEnrichmentError(e.message)}finally{setEnriching(false)}
+  }
   if (error)
     return (
       <section className="local-detail-page">
@@ -1976,6 +1988,9 @@ function MediaDetailPage({profile}: {profile: Profile | null}) {
             <button data-focus className="primary" onClick={() => nav(`/watch/${item.id}`)}>
               <Play /> Regarder
             </button>
+            <button data-focus disabled={enriching} onClick={refreshMetadata}>
+              {enriching?<LoaderCircle className="spin"/>:<RefreshCw />} {enriching?'Mise à jour…':'Actualiser les informations'}
+            </button>
             <button data-focus onClick={() => setAction('hide')}>
               <EyeOff /> Masquer
             </button>
@@ -1983,6 +1998,8 @@ function MediaDetailPage({profile}: {profile: Profile | null}) {
               <Trash2 /> Supprimer
             </button>
           </div>
+          {enrichmentStatus&&<div className="detail-enrichment-status success"><Check/>{enrichmentStatus}</div>}
+          {enrichmentError&&<div className="detail-enrichment-status error"><Info/>{enrichmentError}</div>}
         </div>
       </header>
       <div className="local-detail-body">{related.length > 0 && <RecommendationRow title="Vous aimerez aussi" icon={<Sparkles />} items={related} onSelect={setSelected} />}</div>
@@ -2001,6 +2018,9 @@ function SeriesDetailPage({profile}: {profile: Profile | null}) {
     [related, setRelated] = useState<Recommendation[]>([]),
     [selected, setSelected] = useState<Recommendation | null>(null),
     [managedAction, setManagedAction] = useState<{item: Media; action: MediaAction; season?: number} | null>(null),
+    [enriching, setEnriching] = useState(false),
+    [enrichmentStatus, setEnrichmentStatus] = useState(''),
+    [enrichmentError, setEnrichmentError] = useState(''),
     [error, setError] = useState('')
   useEffect(() => {
     let active = true
@@ -2043,6 +2063,18 @@ function SeriesDetailPage({profile}: {profile: Profile | null}) {
       active = false
     }
   }, [title, profile?.id])
+  const refreshMetadata=async()=>{
+    if(!series||enriching)return
+    setEnriching(true);setEnrichmentStatus('');setEnrichmentError('')
+    try{
+      const result=await api.enrichSeries(series.title),groups=await api.series(profile?.id)
+      const updated=groups.find(item=>item.title.localeCompare(result.title,undefined,{sensitivity:'base'})===0)
+      if(!updated)throw new Error('La série enrichie est introuvable dans la médiathèque.')
+      setSeries(updated)
+      if(!updated.seasons.includes(season))setSeason(updated.seasons[0]||1)
+      setEnrichmentStatus(`${result.updated} épisode${result.updated>1?'s':''} mis à jour depuis OMDb.`)
+    }catch(e:any){setEnrichmentError(e.message)}finally{setEnriching(false)}
+  }
   if (error)
     return (
       <section className="local-detail-page">
@@ -2076,7 +2108,12 @@ function SeriesDetailPage({profile}: {profile: Profile | null}) {
             <button id="play-season" data-focus data-focus-down="#episode-first" className="primary" onClick={() => episodes[0] && nav(`/watch/${episodes[0].id}`)}>
               <Play /> Lire la saison
             </button>
+            <button data-focus disabled={enriching} onClick={refreshMetadata}>
+              {enriching?<LoaderCircle className="spin"/>:<RefreshCw />} {enriching?'Mise à jour…':'Actualiser les informations'}
+            </button>
           </div>
+          {enrichmentStatus&&<div className="detail-enrichment-status success"><Check/>{enrichmentStatus}</div>}
+          {enrichmentError&&<div className="detail-enrichment-status error"><Info/>{enrichmentError}</div>}
         </div>
       </header>
       <div className="local-detail-body">
