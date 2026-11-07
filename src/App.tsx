@@ -943,6 +943,7 @@ function HomeScreen({profile}: {profile: Profile | null}) {
 function RecommendationsPage({profile}: {profile: Profile | null}) {
   const nav = useNavigate(),
     sentinel = useRef<HTMLDivElement>(null),
+    loadingMoreRef = useRef(false),
     [items, setItems] = useState<Recommendation[]>([]),
     [selected, setSelected] = useState<Recommendation | null>(null),
     [qr, setQr] = useState<{url: string; qr: string} | null>(null),
@@ -958,6 +959,7 @@ function RecommendationsPage({profile}: {profile: Profile | null}) {
     [error, setError] = useState('')
   const load = () => {
     if (!profile) return
+    loadingMoreRef.current = false
     setLoading(true)
     setPage(1)
     setError('')
@@ -972,22 +974,27 @@ function RecommendationsPage({profile}: {profile: Profile | null}) {
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false))
   }
-  const loadMore = async () => {
-    if (!profile || !hasMore || loadingMore) return
+  const loadMore = async (focusFirstNew = false) => {
+    if (!profile || !hasMore || loadingMoreRef.current) return
+    loadingMoreRef.current = true
     setLoadingMore(true)
     const nextPage = page + 1
+    const previousCount = items.length
     try {
       const result = await api.profileRecommendations(profile.id, nextPage)
+      const shouldFocusNext = focusFirstNew || document.activeElement?.id === 'recommendations-load-more'
       setItems((current) => {
         const known = new Set(current.map((item) => item.id))
         return [...current, ...result.items.filter((item) => !known.has(item.id))]
       })
       setPage(nextPage)
       setHasMore(result.hasMore)
+      if (shouldFocusNext) requestAnimationFrame(() => requestAnimationFrame(() => document.querySelector<HTMLElement>(`[data-recommendation-index="${previousCount}"]`)?.focus()))
     } catch (e: any) {
       setError(e.message)
       setHasMore(false)
     } finally {
+      loadingMoreRef.current = false
       setLoadingMore(false)
     }
   }
@@ -1061,7 +1068,7 @@ function RecommendationsPage({profile}: {profile: Profile | null}) {
           <LoaderCircle className="spin recommendations-loader" />
         ) : (
           items.map((item, index) => (
-            <button data-focus autoFocus={index === 0} className="recommendation-card" key={item.id} onClick={() => setSelected(item)}>
+            <button data-focus data-recommendation-index={index} autoFocus={index === 0} className="recommendation-card" key={item.id} onFocus={() => {if (index >= items.length - 8) void loadMore()}} onClick={() => setSelected(item)}>
               <div className="recommendation-poster" style={mediaArt(item.poster || item.backdrop)}>
                 <span className={item.available ? 'available' : 'to-find'}>{item.available ? 'DISPONIBLE' : 'À TROUVER'}</span>
               </div>
@@ -1078,12 +1085,8 @@ function RecommendationsPage({profile}: {profile: Profile | null}) {
         {!loading && !items.length && !error && <EmptyState icon={<Sparkles />} title="Pas encore assez d’indices" text="Notez quelques films ou séries, choisissez vos genres favoris via le QR code et relancez la sélection." />}
       </div>
       <div ref={sentinel} className="recommendation-sentinel" aria-live="polite">
-        {loadingMore && (
-          <>
-            <LoaderCircle className="spin" /> Chargement d’autres recommandations…
-          </>
-        )}
         {!loading && items.length > 0 && !hasMore && <span>Vous avez parcouru toutes les recommandations.</span>}
+        {!loading && hasMore && <button id="recommendations-load-more" data-focus aria-busy={loadingMore} onFocus={() => void loadMore(true)} onClick={() => void loadMore(true)}>{loadingMore?<LoaderCircle className="spin"/>:<ChevronDown/>}{loadingMore?'Chargement…':'Charger la suite'}</button>}
       </div>
       {source === 'tmdb' && <p className="tmdb-credit">Ce produit utilise l’API TMDB mais n’est ni approuvé ni certifié par TMDB.</p>}
       {selected && <RecommendationDetails item={selected} profileId={profile.id} onClose={() => setSelected(null)} />}

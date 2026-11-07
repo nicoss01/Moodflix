@@ -109,7 +109,7 @@ html.moodflix-screensaver-active,html.moodflix-screensaver-active body{height:10
 .torrent-pagination{display:flex;align-items:center;justify-content:center;gap:18px;margin:25px 0 10px}.torrent-pagination button{min-height:42px;padding:0 16px;display:flex;align-items:center;gap:7px;border:1px solid #40546b;border-radius:9px;background:#172536;color:#fff;font-weight:700}.torrent-pagination button:disabled{opacity:.35;cursor:default}.torrent-pagination button svg{width:18px}.torrent-pagination span{color:#91a1b3;font-size:13px}.torrent-pagination span b{color:#fff}
 
 /* Point de chargement du défilement infini. */
-.recommendation-sentinel{min-height:72px;display:flex;align-items:center;justify-content:center;gap:10px;color:#75879a;font-size:13px}.recommendation-sentinel svg{width:22px;color:#ff4967}
+.recommendation-sentinel{min-height:72px;display:flex;align-items:center;justify-content:center;gap:10px;color:#75879a;font-size:13px}.recommendation-sentinel svg{width:22px;color:#ff4967}.recommendation-sentinel button{min-height:46px;padding:0 20px;display:flex;align-items:center;gap:8px;border:1px solid #42566c;border-radius:99px;background:#172638;color:#dce7f3;font-weight:750}.recommendation-sentinel button svg{color:#ff4967}
 @media(max-width:650px){.torrent-pagination{gap:8px}.torrent-pagination button{padding:0 11px;font-size:0}.torrent-pagination button svg{margin:0}.torrent-pagination span{font-size:11px}}
 
 /* Accueil personnalisé, accès aux recommandations et actions sur les médias locaux. */

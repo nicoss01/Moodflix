@@ -90,7 +90,7 @@ install_packages() {
   sudo env DEBIAN_FRONTEND=noninteractive apt-get update
   sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     ffmpeg chromium cec-utils curl qbittorrent-nox build-essential python3 \
-    cage seatd fonts-dejavu-core udisks2 udiskie dbus-x11 unclutter-xfixes
+    cage seatd fonts-dejavu-core udisks2 udiskie dbus-x11 unclutter-xfixes x11-apps
 }
 
 install_node() {
@@ -106,6 +106,23 @@ prepare_storage() {
   mkdir -p "$APP_DIR/data"
   sudo mkdir -p /srv/media/downloads
   sudo chown -R "$CURRENT_USER:$CURRENT_USER" /srv/media
+}
+
+install_invisible_cursor() {
+  local work theme cursor name
+  work="$(mktemp -d /tmp/moodflix-cursor.XXXXXX)"
+  theme="/usr/share/icons/MoodFlixInvisible"
+  cursor="$work/left_ptr"
+  ffmpeg -loglevel error -f lavfi -i 'color=c=black@0.0:s=32x32,format=rgba' -frames:v 1 -y "$work/transparent.png"
+  printf '32 0 0 transparent.png\n' > "$work/cursor.cfg"
+  xcursorgen -p "$work" "$work/cursor.cfg" "$cursor"
+  sudo install -d -m 0755 "$theme/cursors"
+  sudo install -m 0644 "$cursor" "$theme/cursors/left_ptr"
+  for name in default arrow top_left_arrow hand1 hand2 pointer text xterm watch wait progress crosshair move not-allowed ew-resize ns-resize nesw-resize nwse-resize; do
+    sudo ln -sfn left_ptr "$theme/cursors/$name"
+  done
+  printf '[Icon Theme]\nName=MoodFlix Invisible\nComment=Curseur transparent pour le kiosque TV\n' | sudo tee "$theme/index.theme" >/dev/null
+  if [[ "$work" == /tmp/moodflix-cursor.* ]]; then rm -rf -- "$work"; fi
 }
 
 reset_configuration() {
@@ -211,6 +228,7 @@ run_step 'Moteur Node.js' install_node
 run_step 'Dépendances MoodFlix' install_dependencies
 run_step 'Compilation de l’interface' build_application
 run_step 'Bibliothèque et stockage' prepare_storage
+run_step 'Curseur invisible du kiosque' install_invisible_cursor
 if [[ "$RESET_INSTALL" -eq 1 ]]; then run_step 'Remise à zéro des réglages' reset_configuration; fi
 run_step 'Configuration des services' configure_services
 run_step 'Activation au démarrage' enable_services

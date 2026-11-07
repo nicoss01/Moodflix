@@ -16,6 +16,9 @@ Environment=XDG_RUNTIME_DIR=/run/user/__UID__
 Environment=XDG_SESSION_TYPE=wayland
 Environment=LIBSEAT_BACKEND=logind
 Environment=XKB_DEFAULT_LAYOUT=fr
+Environment=XCURSOR_THEME=MoodFlixInvisible
+Environment=XCURSOR_SIZE=1
+Environment=XCURSOR_PATH=/usr/share/icons
 # La télécommande est l'interface du kiosque. Les faux périphériques « souris »
 # exposés par HDMI-CEC ne doivent pas empêcher Cage de démarrer sans pointeur.
 Environment=WLR_LIBINPUT_NO_DEVICES=1

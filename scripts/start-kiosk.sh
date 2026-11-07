@@ -2,6 +2,8 @@
 set -euo pipefail
 
 APP_URL="${MOODFLIX_URL:-http://127.0.0.1:4242}"
+export XCURSOR_THEME="${XCURSOR_THEME:-MoodFlixInvisible}"
+export XCURSOR_SIZE="${XCURSOR_SIZE:-1}"
 
 if [[ -z "${WAYLAND_DISPLAY:-}" ]]; then
   xset s off
