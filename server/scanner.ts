@@ -6,7 +6,7 @@ import { db, getSetting } from './db.js'
 import { cacheArtwork, lookupOmdb } from './omdb.js'
 
 const execFileAsync = promisify(execFile)
-const VIDEO_EXTENSIONS = new Set(['.mp4', '.mkv', '.avi', '.mov', '.m4v', '.webm', '.ts'])
+const VIDEO_EXTENSIONS = new Set(['.mp4', '.mkv', '.avi', '.mov', '.m4v', '.webm'])
 const SKIPPED_DIRECTORIES = new Set(['node_modules','.git','$recycle.bin','system volume information','__macosx'])
 const metadataAttempts = new Map<string, number>()
 const METADATA_RETRY_MS = 6 * 60 * 60 * 1000
@@ -16,8 +16,7 @@ export type DriveInfo={id:string;device:string;name:string;label:string;model:st
 export type ScanProgress={phase:'discovering'|'scanning'|'complete';current:number;total:number;percent:number;found:number;enriched:number;latest?:{title:string;kind:'movie'|'series';poster?:string}}
 
 export function isVideoCandidate(filename:string){
-  const lower=filename.toLowerCase()
-  return !lower.endsWith('.d.ts')&&VIDEO_EXTENSIONS.has(path.extname(lower))
+  return VIDEO_EXTENSIONS.has(path.extname(filename).toLowerCase())
 }
 
 async function walk(dir:string,files:string[]=[],onFound?:(count:number)=>void):Promise<string[]>{
@@ -68,10 +67,19 @@ export async function ensureDriveMounted(device:string){
 }
 
 export function parseMediaName(file:string){
-  const base=path.basename(file,path.extname(file)).replace(/[._]/g,' ')
-  const episode=base.match(/(.+?)[ .-]+S(\d{1,2})E(\d{1,2})/i)
+  const base=path.basename(file,path.extname(file)).replace(/[._]+/g,' ').replace(/\s+/g,' ').trim()
+  const episode=base.match(/^(.+?)(?:\s*[-–—]\s*|\s+)(?:S(?:eason|aison)?\s*(\d{1,2})\s*E(?:pisode)?\s*(\d{1,3})|(\d{1,2})\s*x\s*(\d{1,3}))(?:\b|\s|[-–—])/i)
   const year=base.match(/\b(19\d{2}|20\d{2})\b/)
-  if(episode)return{title:`${episode[1].trim()} — S${episode[2]} E${episode[3]}`,kind:'series' as const,seriesTitle:episode[1].trim(),season:+episode[2],episode:+episode[3],year:year?+year[1]:null}
+  if(episode){const season=Number(episode[2]||episode[4]),number=Number(episode[3]||episode[5]),seriesTitle=episode[1].trim();return{title:`${seriesTitle} — S${season} E${number}`,kind:'series' as const,seriesTitle,season,episode:number,year:year?+year[1]:null}}
+
+  // Beaucoup de bibliothèques utilisent Show/Saison 01/02 - Titre.mkv : le nom
+  // de fichier ne contient alors pas S01E02, mais le dossier fournit la saison.
+  const parent=path.basename(path.dirname(file)).replace(/[._]+/g,' ').trim()
+  const seasonFolder=parent.match(/^(?:season|saison)\s*(\d{1,2})$/i)
+  const folderEpisode=base.match(/^(?:e(?:pisode)?|ep(?:isode)?)?\s*(\d{1,3})(?:\b|\s*[-–—])/i)
+    ||base.match(/(?:^|\s)(?:e(?:pisode)?|ep(?:isode)?)\s*(\d{1,3})\b/i)
+    ||base.match(/(?:^|\s[-–—]\s*)(\d{1,3})(?:\b|\s*[-–—])/i)
+  if(seasonFolder&&folderEpisode){const season=Number(seasonFolder[1]),number=Number(folderEpisode[1]),seriesTitle=path.basename(path.dirname(path.dirname(file))).replace(/[._]+/g,' ').trim();return{title:`${seriesTitle} — S${season} E${number}`,kind:'series' as const,seriesTitle,season,episode:number,year:year?+year[1]:null}}
   return{title:base.replace(/\b(19\d{2}|20\d{2})\b.*$/,'').trim(),kind:'movie' as const,seriesTitle:null,season:null,episode:null,year:year?+year[1]:null}
 }
 
@@ -104,7 +112,7 @@ async function scanDirectories(directories:string[],resetAll:boolean,onProgress?
     markUnavailable(directories,resetAll)
     const upsert=db.prepare(`INSERT INTO media(path,title,kind,series_title,season,episode,year,duration,genres,overview,available,file_size,file_mtime)
       VALUES(@path,@title,@kind,@seriesTitle,@season,@episode,@year,@duration,'[]','',1,@fileSize,@fileMtime)
-      ON CONFLICT(path) DO UPDATE SET available=1,title=CASE WHEN media.overview='' THEN excluded.title ELSE media.title END,duration=excluded.duration,file_size=excluded.file_size,file_mtime=excluded.file_mtime`)
+      ON CONFLICT(path) DO UPDATE SET available=1,title=CASE WHEN media.overview='' THEN excluded.title ELSE media.title END,kind=excluded.kind,series_title=excluded.series_title,season=excluded.season,episode=excluded.episode,year=COALESCE(excluded.year,media.year),duration=excluded.duration,file_size=excluded.file_size,file_mtime=excluded.file_mtime`)
     const findMedia=db.prepare('SELECT overview,poster,duration,file_size,file_mtime FROM media WHERE path=?')
     const enrich=db.prepare(`UPDATE media SET title=CASE WHEN overview='' THEN @title ELSE title END,series_title=COALESCE(@seriesTitle,series_title),year=COALESCE(@year,year),age_rating=@ageRating,genres=@genres,overview=CASE WHEN overview='' THEN @overview ELSE overview END,poster=CASE WHEN poster IS NULL OR poster='' THEN @poster ELSE poster END WHERE path=@path`)
     const updatePoster=db.prepare('UPDATE media SET poster=? WHERE path=?')

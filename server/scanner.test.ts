@@ -13,6 +13,12 @@ describe('parseMediaName', () => {
       seriesTitle: 'Cosmos 9', kind: 'series', season: 2, episode: 4
     })
   })
+  it('reconnaît les variantes de nommage et les dossiers de saison',()=>{
+    expect(parseMediaName('/media/The Bear/The.Bear.2x03.1080p.mkv')).toMatchObject({seriesTitle:'The Bear',kind:'series',season:2,episode:3})
+    expect(parseMediaName('/media/Severance/Season 02/03 - Who Is Alive.mp4')).toMatchObject({seriesTitle:'Severance',kind:'series',season:2,episode:3})
+    expect(parseMediaName('/media/Severance/Season 02/Severance - E04 - Woe.mkv')).toMatchObject({seriesTitle:'Severance',kind:'series',season:2,episode:4})
+    expect(parseMediaName('/media/OVNI/Saison.01/Episode 04.mkv')).toMatchObject({seriesTitle:'OVNI',kind:'series',season:1,episode:4})
+  })
   it('détecte une partition USB montée et ignore le disque système',()=>{
     const drives=parseLsblk({blockdevices:[
       {path:'/dev/mmcblk0',type:'disk',rm:0,children:[{path:'/dev/mmcblk0p2',type:'part',fstype:'ext4',mountpoints:['/']}]},
@@ -23,9 +29,9 @@ describe('parseMediaName', () => {
 })
 
 describe('isVideoCandidate',()=>{
-  it('accepte les conteneurs vidéo et rejette les déclarations TypeScript',()=>{
+  it('accepte les conteneurs vidéo et rejette tous les fichiers .ts',()=>{
     expect(isVideoCandidate('Film.2026.mkv')).toBe(true)
-    expect(isVideoCandidate('enregistrement.ts')).toBe(true)
+    expect(isVideoCandidate('enregistrement.ts')).toBe(false)
     expect(isVideoCandidate('error.d.ts')).toBe(false)
     expect(isVideoCandidate('affiche.jpg')).toBe(false)
   })
