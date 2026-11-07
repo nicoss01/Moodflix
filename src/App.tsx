@@ -2000,7 +2000,6 @@ function SeriesDetailPage({profile}: {profile: Profile | null}) {
     [season, setSeason] = useState(1),
     [related, setRelated] = useState<Recommendation[]>([]),
     [selected, setSelected] = useState<Recommendation | null>(null),
-    [context, setContext] = useState<Media | null>(null),
     [managedAction, setManagedAction] = useState<{item: Media; action: MediaAction; season?: number} | null>(null),
     [error, setError] = useState('')
   useEffect(() => {
@@ -2091,7 +2090,7 @@ function SeriesDetailPage({profile}: {profile: Profile | null}) {
           </div>
           <div className="episode-list">
             {episodes.map((episode, index) => (
-              <div className="episode-management-row" key={episode.id}><LocalMediaCard item={episode} id={index === 0 ? 'episode-first' : undefined} className="episode-row" onActivate={() => nav(`/watch/${episode.id}`)} onLongPress={setContext}>
+              <div className="episode-management-row" key={episode.id}><LocalMediaCard item={episode} id={index === 0 ? 'episode-first' : undefined} className="episode-row" onActivate={() => nav(`/watch/${episode.id}`)}>
                 <span className="episode-number">{String(episode.episode || index + 1).padStart(2, '0')}</span>
                 <span className="episode-copy">
                   <b>{episode.title}</b>
@@ -2107,7 +2106,7 @@ function SeriesDetailPage({profile}: {profile: Profile | null}) {
         </section>
         {related.length > 0 && <RecommendationRow title="Vous aimerez aussi" icon={<Sparkles />} items={related} onSelect={setSelected} />}
       </div>
-      {selected && <RecommendationDetails item={selected} profileId={profile?.id} onClose={() => setSelected(null)} />} {context && <MediaContextMenu item={context} onClose={() => setContext(null)} onSuccess={() => nav('/series', {replace: true})} />}
+      {selected && <RecommendationDetails item={selected} profileId={profile?.id} onClose={() => setSelected(null)} />}
       {managedAction && <MediaContextMenu item={managedAction.item} seriesTitle={managedAction.season !== undefined ? series.title : undefined} season={managedAction.season} initialAction={managedAction.action} onClose={() => setManagedAction(null)} onSuccess={() => nav('/series', {replace: true})} />}
     </section>
   )
