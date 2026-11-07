@@ -51,7 +51,7 @@ app.get('/api/health', (_req, res) => res.json({ ok: true, version: '0.1.0', ip:
 app.get('/api/remote/events', (req, res) => {
   res.set({ 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' })
   res.flushHeaders()
-  const send = (key: string) => res.write(`data: ${JSON.stringify({ key })}\n\n`)
+  const send = (key: string,type:'keydown'|'keyup'='keydown') => res.write(`data: ${JSON.stringify({ key,type })}\n\n`)
   remoteEvents.on('key', send)
   const heartbeat = setInterval(() => res.write(': ping\n\n'), 20000)
   req.on('close', () => { clearInterval(heartbeat); remoteEvents.off('key', send) })
@@ -89,8 +89,8 @@ app.get('/api/media', (req, res) => {
   const profileId = Number(req.query.profileId)
   const withProgress = Number.isInteger(profileId) && profileId > 0
   const select = withProgress
-    ? 'SELECT m.*,p.position,p.completed FROM media m LEFT JOIN progress p ON p.media_id=m.id AND p.profile_id=? WHERE m.available=1 AND m.age_rating<=COALESCE((SELECT max_age FROM profiles WHERE id=?),18)'
-    : 'SELECT m.*,NULL AS position,0 AS completed FROM media m WHERE m.available=1'
+    ? 'SELECT m.*,p.position,p.completed FROM media m LEFT JOIN progress p ON p.media_id=m.id AND p.profile_id=? WHERE m.available=1 AND m.hidden=0 AND m.age_rating<=COALESCE((SELECT max_age FROM profiles WHERE id=?),18)'
+    : 'SELECT m.*,NULL AS position,0 AS completed FROM media m WHERE m.available=1 AND m.hidden=0'
   const params:any[] = withProgress ? [profileId,profileId] : []
   if (kind === 'movie' || kind === 'series') params.push(kind)
   const rows = db.prepare(`${select}${kind === 'movie' || kind === 'series' ? ' AND m.kind=?' : ''} ORDER BY m.added_at DESC`).all(...params)
@@ -101,8 +101,8 @@ app.get('/api/series', (req, res) => {
   const profile=Number.isInteger(profileId)&&profileId>0?db.prepare('SELECT max_age FROM profiles WHERE id=?').get(profileId) as {max_age:number}|undefined:undefined
   const rows=(profile
     ? db.prepare(`SELECT m.*,p.position,p.completed FROM media m LEFT JOIN progress p ON p.media_id=m.id AND p.profile_id=?
-        WHERE m.available=1 AND m.kind='series' AND m.age_rating<=? ORDER BY COALESCE(m.series_title,m.title),m.season,m.episode`).all(profileId,profile.max_age)
-    : db.prepare(`SELECT m.*,NULL AS position,0 AS completed FROM media m WHERE m.available=1 AND m.kind='series'
+        WHERE m.available=1 AND m.hidden=0 AND m.kind='series' AND m.age_rating<=? ORDER BY COALESCE(m.series_title,m.title),m.season,m.episode`).all(profileId,profile.max_age)
+    : db.prepare(`SELECT m.*,NULL AS position,0 AS completed FROM media m WHERE m.available=1 AND m.hidden=0 AND m.kind='series'
         ORDER BY COALESCE(m.series_title,m.title),m.season,m.episode`).all()) as any[]
   const groups=new Map<string,any>()
   for(const row of rows){
@@ -119,11 +119,15 @@ app.get('/api/series', (req, res) => {
   }
   res.json([...groups.values()].map(group=>({...group,genres:[...group.genres],seasons:[...group.seasons].sort((a,b)=>a-b),episodes:group.episodes.sort((a:any,b:any)=>(a.season||1)-(b.season||1)||(a.episode||0)-(b.episode||0))})))
 })
+app.put('/api/series/visibility',(req,res,next)=>{try{const {title,hidden}=z.object({title:z.string().trim().min(1),hidden:z.boolean()}).parse(req.body);const result=db.prepare(`UPDATE media SET hidden=? WHERE kind='series' AND path IS NOT NULL AND COALESCE(series_title,title)=? COLLATE NOCASE`).run(Number(hidden),title);if(!result.changes)return res.status(404).json({error:'Série locale introuvable'});res.json({ok:true,hidden,count:result.changes})}catch(error){next(error)}})
+app.delete('/api/series/files',async(req,res,next)=>{try{const {title}=z.object({title:z.string().trim().min(1),confirm:z.literal(true)}).parse(req.body);const items=db.prepare(`SELECT id,path FROM media WHERE kind='series' AND path IS NOT NULL AND COALESCE(series_title,title)=? COLLATE NOCASE`).all(title) as {id:number;path:string}[];if(!items.length)return res.status(404).json({error:'Série locale introuvable'});for(const item of items){if(fs.existsSync(item.path))await fs.promises.unlink(item.path);db.transaction(()=>{db.prepare('DELETE FROM ratings WHERE media_id=?').run(item.id);db.prepare('DELETE FROM progress WHERE media_id=?').run(item.id);db.prepare('DELETE FROM media WHERE id=?').run(item.id)})()}res.json({ok:true,count:items.length})}catch(error){next(error)}})
 app.get('/api/media/:id', (req, res) => {
   const row = db.prepare('SELECT * FROM media WHERE id=?').get(req.params.id)
   if (!row) return res.status(404).json({ error: 'Média introuvable' })
   res.json(parseMedia(row))
 })
+app.put('/api/media/:id/visibility',(req,res,next)=>{try{const {hidden}=z.object({hidden:z.boolean()}).parse(req.body);const result=db.prepare('UPDATE media SET hidden=? WHERE id=? AND path IS NOT NULL').run(Number(hidden),req.params.id);if(!result.changes)return res.status(404).json({error:'Média local introuvable'});res.json({ok:true,hidden})}catch(error){next(error)}})
+app.delete('/api/media/:id/file',async(req,res,next)=>{try{z.object({confirm:z.literal(true)}).parse(req.body);const item=db.prepare('SELECT id,path FROM media WHERE id=? AND path IS NOT NULL').get(req.params.id) as {id:number;path:string}|undefined;if(!item)return res.status(404).json({error:'Média local introuvable'});if(fs.existsSync(item.path))await fs.promises.unlink(item.path);db.transaction(()=>{db.prepare('DELETE FROM ratings WHERE media_id=?').run(item.id);db.prepare('DELETE FROM progress WHERE media_id=?').run(item.id);db.prepare('DELETE FROM media WHERE id=?').run(item.id)})();res.json({ok:true})}catch(error){next(error)}})
 app.get('/api/media/:id/neighbors',(req,res)=>{
   const current=db.prepare('SELECT id,kind,COALESCE(series_title,title) AS series_title FROM media WHERE id=? AND available=1').get(req.params.id) as {id:number;kind:string;series_title:string}|undefined
   if(!current||current.kind!=='series')return res.json({previous:null,next:null})
@@ -204,7 +208,7 @@ app.get('/api/progress/continue', (req, res) => {
   const profileId = Number(req.query.profileId)
   if (!Number.isInteger(profileId)) return res.status(400).json({ error: 'Profil invalide' })
   const rows = db.prepare(`SELECT m.*,p.position FROM progress p JOIN media m ON m.id=p.media_id
-    WHERE p.profile_id=? AND p.completed=0 AND p.position>0 AND m.duration>0
+    WHERE p.profile_id=? AND p.completed=0 AND p.position>0 AND m.duration>0 AND m.hidden=0
       AND p.position<m.duration*? AND (m.duration-p.position)>300 AND m.available=1
     ORDER BY p.updated_at DESC`).all(profileId,WATCHED_RATIO)
   res.json(rows.map(parseMedia))
@@ -218,7 +222,7 @@ app.post('/api/recommendations', (req, res) => {
   const placeholders = data.participants.map(() => '?').join(',')
   const profiles = db.prepare(`SELECT * FROM profiles WHERE id IN (${placeholders})`).all(...data.participants) as any[]
   const age = Math.min(...profiles.map(p => p.max_age))
-  const eligible = (db.prepare('SELECT * FROM media WHERE available=1 AND age_rating<=?').all(age) as any[])
+  const eligible = (db.prepare('SELECT * FROM media WHERE available=1 AND hidden=0 AND age_rating<=?').all(age) as any[])
     .filter(m => data.kind === 'all' || m.kind === data.kind).filter(m => !data.maxDuration || m.duration <= data.maxDuration * 60)
     .sort((a,b) => b.year-a.year).map(parseMedia)
   const media=collapseSeriesMedia(eligible).slice(0,12)

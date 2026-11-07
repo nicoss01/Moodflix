@@ -17,19 +17,24 @@ const keyMap: Array<[RegExp, string]> = [
   [/key pressed: (play|pause|play pause|play function|pause play function)/i, 'MediaPlayPause'],
   [/key pressed: stop/i, 'Escape']
 ]
+const releasedKeyMap: Array<[RegExp, string]> = keyMap.map(([pattern,key])=>[
+  new RegExp(pattern.source.replace('key pressed','key released'),pattern.flags),key
+])
 
 const opcodeMap: Record<string, string> = {
   '00': 'Enter', '01': 'ArrowUp', '02': 'ArrowDown', '03': 'ArrowLeft', '04': 'ArrowRight',
   '09': 'Backspace', '0d': 'Backspace', '44': 'MediaPlayPause', '45': 'Escape', '46': 'MediaPlayPause'
 }
 
-function emitKey(key: string) {
+function emitKey(key: string,type:'keydown'|'keyup'='keydown') {
   const now = Date.now()
-  if (key === lastKey && now - lastKeyAt < 120) return
-  lastKey = key
-  lastKeyAt = now
-  remoteEvents.emit('key', key)
-  console.log(`HDMI-CEC : ${key}`)
+  if (type==='keydown') {
+    if (key === lastKey && now - lastKeyAt < 120) return
+    lastKey = key
+    lastKeyAt = now
+  }
+  remoteEvents.emit('key', key, type)
+  console.log(`HDMI-CEC : ${key} (${type})`)
 }
 
 export function startCecBridge() {
@@ -46,6 +51,8 @@ export function startCecBridge() {
     const lines = buffer.split(/\r?\n/)
     buffer = lines.pop() || ''
     for (const line of lines) {
+      const released = releasedKeyMap.find(([pattern]) => pattern.test(line))
+      if (released) { emitKey(released[1],'keyup'); continue }
       const match = keyMap.find(([pattern]) => pattern.test(line))
       if (match) { emitKey(match[1]); continue }
       const opcode = line.match(/>>\s+[0-9a-f]{2}:44:([0-9a-f]{2})/i)?.[1]?.toLowerCase()

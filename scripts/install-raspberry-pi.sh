@@ -90,7 +90,7 @@ install_packages() {
   sudo env DEBIAN_FRONTEND=noninteractive apt-get update
   sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     ffmpeg chromium cec-utils curl qbittorrent-nox build-essential python3 \
-    cage seatd fonts-dejavu-core udisks2 udiskie dbus-x11
+    cage seatd fonts-dejavu-core udisks2 udiskie dbus-x11 unclutter-xfixes
 }
 
 install_node() {
@@ -129,6 +129,13 @@ configure_services() {
   printf '%s ALL=(root) NOPASSWD: /usr/bin/systemctl reboot\n' "$CURRENT_USER" | sudo tee /etc/sudoers.d/moodflix-reboot >/dev/null
   sudo chmod 0440 /etc/sudoers.d/moodflix-reboot
   sudo visudo -cf /etc/sudoers.d/moodflix-reboot
+  # Cage affiche un curseur dès qu'un périphérique est classé comme pointeur.
+  # Les contrôleurs HDMI du Raspberry Pi déclarent parfois cette capacité à tort.
+  sudo tee /etc/udev/rules.d/99-moodflix-no-pointer.rules >/dev/null <<'EOF'
+ACTION!="remove", KERNEL=="event[0-9]*", ENV{ID_INPUT_MOUSE}="", ENV{ID_INPUT_TOUCHPAD}="", ENV{ID_INPUT_POINTINGSTICK}=""
+EOF
+  sudo udevadm control --reload-rules
+  sudo udevadm trigger --subsystem-match=input
   sudo systemctl daemon-reload
   sudo systemctl reset-failed moodflix-kiosk.service || true
 }

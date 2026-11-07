@@ -8,7 +8,7 @@ if [[ -z "${WAYLAND_DISPLAY:-}" ]]; then
   xset -dpms
   xset s noblank
   openbox-session &
-  unclutter -idle 0.25 -root &
+  unclutter -idle 0 -root &
 fi
 
 # Raspberry Pi OS Lite n'a pas d'automontage de supports amovibles.
@@ -39,6 +39,7 @@ CHROMIUM_FLAGS=(
   --disable-features=Translate,TranslateUI
   --disable-session-crashed-bubble
   --disable-pinch
+  --hide-scrollbars
   --overscroll-history-navigation=0
   --autoplay-policy=no-user-gesture-required
   --user-data-dir="$HOME/.config/moodflix-chromium"
