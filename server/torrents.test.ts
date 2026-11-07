@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { assertQbitAddResponse, buildQbitHeaders, buildTorznabUrl, resolveQbitBase, testQbit } from './torrents.js'
+import { assertQbitAddResponse, buildQbitHeaders, buildTorznabUrl, extractTorrentLink, resolveQbitBase, testQbit } from './torrents.js'
 
 afterEach(()=>vi.restoreAllMocks())
 
@@ -48,5 +48,19 @@ describe('assertQbitAddResponse',()=>{
   })
   it('refuse le faux succès HTTP 200 de qBittorrent',()=>{
     expect(()=>assertQbitAddResponse('Fails.')).toThrow(/refusé le torrent/)
+  })
+})
+
+describe('extractTorrentLink',()=>{
+  it('préfère le lien magnet Torznab à la page web du résultat',()=>{
+    expect(extractTorrentLink({title:'Film',link:'https://indexeur.test/details/42','torznab:attr':[
+      {$:{name:'seeders',value:'10'}},{$:{name:'magneturl',value:'magnet:?xt=urn:btih:ABC123'}}
+    ]})).toBe('magnet:?xt=urn:btih:ABC123')
+  })
+  it('préfère enclosure à la page de détails',()=>{
+    expect(extractTorrentLink({link:'https://indexeur.test/details/42',enclosure:{$:{url:'https://indexeur.test/download/42.torrent'}}})).toBe('https://indexeur.test/download/42.torrent')
+  })
+  it('reconstruit un magnet depuis infohash avant de reprendre link',()=>{
+    expect(extractTorrentLink({title:'Ma série',link:'https://indexeur.test/details/42','torznab:attr':{$:{name:'infohash',value:'0123456789ABCDEF'}}})).toContain('magnet:?xt=urn:btih:0123456789ABCDEF')
   })
 })

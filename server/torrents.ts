@@ -75,12 +75,25 @@ function magnetInfoHash(value:string){
 
 const wait=(delay:number)=>new Promise(resolve=>setTimeout(resolve,delay))
 
+async function fillTorrentForm(form:FormData,url:string){
+  if(url.toLowerCase().startsWith('magnet:')){form.set('urls',url);return}
+  let response:Response
+  try{response=await fetch(url,{redirect:'follow',headers:{Accept:'application/x-bittorrent, application/octet-stream;q=0.9, */*;q=0.1','User-Agent':'MoodFlix/0.1'},signal:AbortSignal.timeout(15000)})}
+  catch(error:any){throw new Error(`Impossible de récupérer le fichier torrent auprès du moteur : ${error?.name==='TimeoutError'?'délai dépassé':error?.message||'erreur réseau'}`)}
+  if(!response.ok)throw new Error(`Le moteur refuse le téléchargement du fichier torrent (HTTP ${response.status}).`)
+  const contentType=(response.headers.get('content-type')||'').toLowerCase(),bytes=await response.arrayBuffer()
+  const beginning=new TextDecoder().decode(bytes.slice(0,Math.min(bytes.byteLength,1024))).trimStart().toLowerCase()
+  if(contentType.includes('text/html')||beginning.startsWith('<!doctype html')||beginning.startsWith('<html'))throw new Error('Le moteur a fourni une page web de détails à la place du fichier torrent. Vérifiez que son flux Torznab expose magneturl, downloadurl ou enclosure.')
+  if(bytes.byteLength<20||(!contentType.includes('bittorrent')&&!(beginning.startsWith('d')&&beginning.includes('4:info'))))throw new Error(`Le lien fourni par le moteur ne contient pas un fichier .torrent valide${contentType?` (${contentType.split(';')[0]})`:''}.`)
+  form.set('torrents',new Blob([bytes],{type:'application/x-bittorrent'}),'moodflix.torrent')
+}
+
 export async function addTorrent(url: string) {
   const before=await listTorrents() as QbitTorrent[]
   const previousHashes=new Set(before.map(item=>String(item.hash).toLowerCase()))
   const expectedHash=magnetInfoHash(url)
   const form = new FormData()
-  form.set('urls', url)
+  await fillTorrentForm(form,url)
   form.set('category', 'moodflix')
   form.set('savepath', getSetting('DOWNLOAD_DIR', '/srv/media/downloads'))
   const response=await qbit('/api/v2/torrents/add', { method: 'POST', body: form })
@@ -157,6 +170,25 @@ export async function testTorznab(base?: string, apiKey?: string) {
   return { ok: true, name: parsed.caps?.server?.$?.title || parsed.caps?.server?.$?.name || 'Moteur Torznab', categories: count }
 }
 
+function xmlText(value:any):string{
+  if(Array.isArray(value))return value.map(xmlText).find(Boolean)||''
+  if(typeof value==='string')return value.trim()
+  if(value&&typeof value==='object')return xmlText(value._||value.$?.url||value.$?.value||'')
+  return''
+}
+
+export function extractTorrentLink(item:any){
+  const attrs=[...(['torznab:attr','newznab:attr'] as const).flatMap(key=>Array.isArray(item?.[key])?item[key]:[item?.[key]])].filter(Boolean)
+  const attr=(name:string)=>xmlText(attrs.find((entry:any)=>String(entry?.$?.name||'').toLowerCase()===name)?.$?.value)
+  const enclosures=(Array.isArray(item?.enclosure)?item.enclosure:[item?.enclosure]).filter(Boolean).map((entry:any)=>xmlText(entry?.$?.url||entry)).filter(Boolean)
+  const valid=(value:string)=>/^(?:magnet:|https?:\/\/)/i.test(value)
+  const preferred=[attr('magneturl'),attr('downloadurl'),...enclosures].find(value=>value&&valid(value))
+  if(preferred)return preferred
+  const infoHash=attr('infohash').replace(/[^a-z0-9]/gi,'')
+  if(infoHash)return`magnet:?xt=urn:btih:${encodeURIComponent(infoHash)}&dn=${encodeURIComponent(xmlText(item?.title)||'MoodFlix')}`
+  return [xmlText(item?.link),xmlText(item?.guid)].find(value=>value&&valid(value))||''
+}
+
 export async function searchTorznab(query: string, kind = 'all') {
   const category = kind === 'movie' ? '2000' : kind === 'series' ? '5000' : ''
   const params: Record<string, string> = { t: 'search', q: query.trim() }
@@ -169,14 +201,14 @@ export async function searchTorznab(query: string, kind = 'all') {
     const attrs = Array.isArray(item['torznab:attr']) ? item['torznab:attr'] : [item['torznab:attr']].filter(Boolean)
     const attr = (name: string) => attrs.find((a: any) => a?.$?.name === name)?.$?.value
     return {
-      id: item.guid?._ || item.guid || `${index}`,
-      title: item.title,
-      link: item.link || item.enclosure?.$?.url,
+      id: xmlText(item.guid) || `${index}`,
+      title: xmlText(item.title),
+      link: extractTorrentLink(item),
       size: Number(item.size || item.enclosure?.$?.length || 0),
       seeds: Number(attr('seeders') || 0),
       peers: Number(attr('peers') || 0),
       published: item.pubDate || null,
       source: item.jackettindexer?.$.id || new URL(base).hostname
     }
-  }).sort((a: any, b: any) => +new Date(b.published || 0) - +new Date(a.published || 0))
+  }).filter((item:any)=>item.link).sort((a: any, b: any) => +new Date(b.published || 0) - +new Date(a.published || 0))
 }
