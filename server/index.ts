@@ -15,6 +15,7 @@ import { remoteEvents, startCecBridge } from './cec.js'
 import { applyUpdate, checkForUpdate, isUpdateRunning } from './updater.js'
 import { artworkDir, testOmdb } from './omdb.js'
 import { getProfilePreferences, getRecommendationsForProfile, getRelated, getTrending, saveProfilePreferences } from './recommendations.js'
+import { hasBeenWatched, WATCHED_RATIO } from './progress.js'
 
 const app = express()
 const port = Number(process.env.PORT || 4242)
@@ -33,6 +34,14 @@ function localIp() {
 }
 
 function parseMedia(row: any) { return { ...row, genres: JSON.parse(row.genres || '[]'), available: Boolean(row.available), completed: Boolean(row.completed) } }
+function collapseSeriesMedia(items:any[]){
+  const unique=new Map<string,any>()
+  for(const item of items){
+    const seriesTitle=String(item.series_title||item.title).trim(),key=item.kind==='series'?`series:${seriesTitle.toLocaleLowerCase('fr')}`:`movie:${item.id}`
+    if(!unique.has(key))unique.set(key,item.kind==='series'?{...item,title:seriesTitle}:item)
+  }
+  return [...unique.values()]
+}
 
 app.get('/api/health', (_req, res) => res.json({ ok: true, version: '0.1.0', ip: localIp() }))
 app.get('/api/remote/events', (req, res) => {
@@ -145,16 +154,21 @@ app.get('/api/media/:id/stream', (req, res) => {
 })
 app.put('/api/progress', (req, res) => {
   const data = z.object({ profileId: z.number().int(), mediaId: z.number().int(), position: z.number().nonnegative(), completed: z.boolean().default(false) }).parse(req.body)
+  const media=db.prepare('SELECT duration FROM media WHERE id=?').get(data.mediaId) as {duration:number}|undefined
+  if(!media)return res.status(404).json({error:'Média introuvable'})
+  const previous=db.prepare('SELECT completed FROM progress WHERE profile_id=? AND media_id=?').get(data.profileId,data.mediaId) as {completed:number}|undefined
+  const completed=hasBeenWatched(data.position,media.duration,data.completed||Boolean(previous?.completed))
   db.prepare(`INSERT INTO progress(profile_id,media_id,position,completed) VALUES(@profileId,@mediaId,@position,@completed)
-    ON CONFLICT(profile_id,media_id) DO UPDATE SET position=excluded.position,completed=excluded.completed,updated_at=CURRENT_TIMESTAMP`).run({ ...data, completed: Number(data.completed) })
-  res.json({ ok: true })
+    ON CONFLICT(profile_id,media_id) DO UPDATE SET position=excluded.position,completed=excluded.completed,updated_at=CURRENT_TIMESTAMP`).run({ ...data, completed: Number(completed) })
+  res.json({ ok: true, completed })
 })
 app.get('/api/progress/continue', (req, res) => {
   const profileId = Number(req.query.profileId)
   if (!Number.isInteger(profileId)) return res.status(400).json({ error: 'Profil invalide' })
   const rows = db.prepare(`SELECT m.*,p.position FROM progress p JOIN media m ON m.id=p.media_id
-    WHERE p.profile_id=? AND p.completed=0 AND p.position>0 AND (m.duration-p.position)>300 AND m.available=1
-    ORDER BY p.updated_at DESC`).all(profileId)
+    WHERE p.profile_id=? AND p.completed=0 AND p.position>0 AND m.duration>0
+      AND p.position<m.duration*? AND (m.duration-p.position)>300 AND m.available=1
+    ORDER BY p.updated_at DESC`).all(profileId,WATCHED_RATIO)
   res.json(rows.map(parseMedia))
 })
 app.get('/api/progress/:mediaId', (req, res) => {
@@ -166,9 +180,10 @@ app.post('/api/recommendations', (req, res) => {
   const placeholders = data.participants.map(() => '?').join(',')
   const profiles = db.prepare(`SELECT * FROM profiles WHERE id IN (${placeholders})`).all(...data.participants) as any[]
   const age = Math.min(...profiles.map(p => p.max_age))
-  const media = (db.prepare('SELECT * FROM media WHERE available=1 AND age_rating<=?').all(age) as any[])
+  const eligible = (db.prepare('SELECT * FROM media WHERE available=1 AND age_rating<=?').all(age) as any[])
     .filter(m => data.kind === 'all' || m.kind === data.kind).filter(m => !data.maxDuration || m.duration <= data.maxDuration * 60)
-    .sort((a,b) => b.year-a.year).slice(0, 12).map(parseMedia)
+    .sort((a,b) => b.year-a.year).map(parseMedia)
+  const media=collapseSeriesMedia(eligible).slice(0,12)
   res.json({ ageLimit: age, items: media })
 })
 app.get('/api/recommendations/profile/:id', async (req, res, next) => {

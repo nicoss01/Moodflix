@@ -79,6 +79,10 @@ if (!count.n) {
 db.prepare("DELETE FROM media WHERE path IS NULL AND poster LIKE 'gradient:%'").run()
 db.prepare('DELETE FROM ratings WHERE media_id NOT IN (SELECT id FROM media)').run()
 db.prepare('DELETE FROM progress WHERE media_id NOT IN (SELECT id FROM media)').run()
+db.prepare(`UPDATE progress SET completed=1
+  WHERE completed=0 AND EXISTS (
+    SELECT 1 FROM media WHERE media.id=progress.media_id AND media.duration>0 AND progress.position>=media.duration*0.95
+  )`).run()
 db.prepare('UPDATE profiles SET name=substr(name,1,12) WHERE length(name)>12').run()
 
 export function getSetting(key: string, fallback = '') {

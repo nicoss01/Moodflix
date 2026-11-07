@@ -28,7 +28,7 @@ export function buildTaste(ratings:RatingTaste[], selected:string[]){
 export function scoreGenres(genres:string[], weights:Record<string,number>){return genres.reduce((total,raw)=>total+(weights[canonicalGenre(raw)]||0),0)}
 
 type ProfileRow = {id:number;name:string;avatar:string;color:string;max_age:number;is_admin:number}
-type MediaRow = {id:number;title:string;kind:'movie'|'series';year:number;duration:number;age_rating:number;genres:string;overview:string;poster?:string;backdrop?:string}
+type MediaRow = {id:number;title:string;kind:'movie'|'series';series_title?:string|null;year:number;duration:number;age_rating:number;genres:string;overview:string;poster?:string;backdrop?:string}
 export type Recommendation = {id:string;title:string;kind:'movie'|'series';year:number;genres:string[];overview:string;poster?:string;backdrop?:string;age_rating:number;score:number;reason:string;available:boolean;localMediaId?:number;source:'library'|'tmdb'}
 
 function profileOrThrow(profileId:number){
@@ -58,11 +58,28 @@ function reasonFor(genres:string[],weights:Record<string,number>){
   return match&&weights[match]>0?`Parce que ${match.toLowerCase()} fait partie de vos goûts`:'Une découverte populaire qui respecte votre profil'
 }
 
+export function collapseSeriesRecommendations(items:Recommendation[]){
+  const unique=new Map<string,Recommendation>()
+  for(const item of items){
+    const key=item.kind==='series'?`series:${clean(item.title)}`:`movie:${item.id}`
+    const current=unique.get(key)
+    if(!current){unique.set(key,item.kind==='series'?{...item,id:`local:series:${clean(item.title)}`}:{...item});continue}
+    current.genres=[...new Set([...current.genres,...item.genres])]
+    current.score=Math.max(current.score,item.score)
+    if(!current.overview&&item.overview)current.overview=item.overview
+    if(!current.poster&&item.poster)current.poster=item.poster
+    if(!current.backdrop&&item.backdrop)current.backdrop=item.backdrop
+    if(!current.year&&item.year)current.year=item.year
+  }
+  return [...unique.values()]
+}
+
 function localRecommendations(profile:ProfileRow,weights:Record<string,number>){
   const rated=new Map((db.prepare('SELECT media_id,score FROM ratings WHERE profile_id=?').all(profile.id) as {media_id:number;score:number}[]).map(row=>[row.media_id,row.score]))
   const rows=db.prepare('SELECT * FROM media WHERE available=1 AND age_rating<=?').all(profile.max_age) as MediaRow[]
   const unseen=rows.filter(row=>!rated.has(row.id)),pool=unseen.length?unseen:rows.filter(row=>(rated.get(row.id)||5)>2)
-  return pool.map(row=>{const genres:string[]=JSON.parse(row.genres||'[]');return {id:`local:${row.id}`,title:row.title,kind:row.kind,year:row.year||0,genres,overview:row.overview,poster:row.poster,backdrop:row.backdrop,age_rating:row.age_rating,score:scoreGenres(genres,weights)+(row.year||0)/10000,reason:reasonFor(genres,weights),available:true,localMediaId:row.id,source:'library' as const}}).sort((a,b)=>b.score-a.score)
+  const recommendations=pool.map(row=>{const genres:string[]=JSON.parse(row.genres||'[]'),title=row.kind==='series'?(row.series_title||row.title):row.title;return {id:`local:${row.id}`,title,kind:row.kind,year:row.year||0,genres,overview:row.overview,poster:row.poster,backdrop:row.backdrop,age_rating:row.age_rating,score:scoreGenres(genres,weights)+(row.year||0)/10000,reason:reasonFor(genres,weights),available:true,localMediaId:row.id,source:'library' as const}})
+  return collapseSeriesRecommendations(recommendations).sort((a,b)=>b.score-a.score)
 }
 
 async function tmdbRequest(path:string,params:Record<string,string>,credential:string,ttl=6*60*60*1000){
@@ -102,7 +119,7 @@ async function tmdbRecommendations(profile:ProfileRow,weights:Record<string,numb
 export async function getRecommendationsForProfile(profileId:number,page=1){
   const profile=profileOrThrow(profileId), preferences=getProfilePreferences(profileId), local=localRecommendations(profile,preferences.weights)
   let remote:Recommendation[]=[];try{remote=await tmdbRecommendations(profile,preferences.weights,page)}catch{}
-  const localTitles=new Set((db.prepare('SELECT title FROM media WHERE available=1').all() as {title:string}[]).map(item=>clean(item.title)))
+  const localTitles=new Set((db.prepare('SELECT COALESCE(series_title,title) AS title FROM media WHERE available=1').all() as {title:string}[]).map(item=>clean(item.title)))
   const remoteUnique=remote.filter(item=>!localTitles.has(clean(item.title))).sort((a,b)=>b.score-a.score)
   const remotePage=remoteUnique.slice(0,24),items=page===1?[...remotePage,...local.slice(0,6)].slice(0,24):remotePage
   return {profile,preferences:{selectedGenres:preferences.selectedGenres,inferredGenres:preferences.inferredGenres},source:remoteUnique.length?'tmdb':'library',items,page,hasMore:remoteUnique.length>=20&&page<10}
