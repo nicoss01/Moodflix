@@ -5,11 +5,12 @@ import os from 'node:os'
 import path from 'node:path'
 import { EventEmitter } from 'node:events'
 import { spawn } from 'node:child_process'
+import { randomUUID } from 'node:crypto'
 import QRCode from 'qrcode'
 import { z } from 'zod'
 import { db, getSetting, setSetting } from './db.js'
-import { scanLibraries } from './scanner.js'
-import { addTorrent, listTorrents, searchTorznab, testTorznab } from './torrents.js'
+import { detectDrives, isLibraryScanRunning, scanDrive, scanLibraries, type ScanProgress } from './scanner.js'
+import { addTorrent, listTorrents, searchTorznab, testQbit, testTorznab } from './torrents.js'
 import { remoteEvents, startCecBridge } from './cec.js'
 import { applyUpdate, checkForUpdate, isUpdateRunning } from './updater.js'
 import { artworkDir, testOmdb } from './omdb.js'
@@ -19,6 +20,8 @@ const app = express()
 const port = Number(process.env.PORT || 4242)
 const torrentSearchEvents = new EventEmitter()
 const preferenceEvents = new EventEmitter()
+type LibraryScanJob={id:string;device:string;status:'waiting'|'running'|'complete'|'error';phase:'mounting'|ScanProgress['phase'];current:number;total:number;percent:number;found:number;enriched:number;recent:NonNullable<ScanProgress['latest']>[];error?:string}
+const libraryScanJobs=new Map<string,LibraryScanJob>()
 app.use(cors())
 app.use(express.json({ limit: '2mb' }))
 app.use('/api/artwork',express.static(artworkDir,{maxAge:'30d',immutable:true}))
@@ -109,6 +112,27 @@ app.get('/api/media/:id', (req, res) => {
   res.json(parseMedia(row))
 })
 app.post('/api/library/scan', async (_req, res, next) => { try { res.json(await scanLibraries()) } catch (e) { next(e) } })
+app.get('/api/library/drives',async(_req,res,next)=>{try{res.json(await detectDrives())}catch(e){next(e)}})
+app.post('/api/library/drives/scan',async(req,res,next)=>{
+  try{
+    if(isLibraryScanRunning())return res.status(409).json({error:'Une analyse de la médiathèque est déjà en cours.'})
+    const {device}=z.object({device:z.string().min(5).max(200)}).parse(req.body)
+    const drive=(await detectDrives()).find(item=>item.device===device)
+    if(!drive)return res.status(404).json({error:'Ce disque USB n’est plus connecté.'})
+    const id=randomUUID(),job:LibraryScanJob={id,device,status:'waiting',phase:'mounting',current:0,total:0,percent:0,found:0,enriched:0,recent:[]}
+    libraryScanJobs.set(id,job)
+    res.status(202).json(job)
+    void (async()=>{
+      job.status='running'
+      try{
+        await scanDrive(device,progress=>{job.phase=progress.phase;job.current=progress.current;job.total=progress.total;job.percent=progress.percent;job.found=progress.found;job.enriched=progress.enriched;if(progress.latest){job.recent=[progress.latest,...job.recent.filter(item=>item.title!==progress.latest?.title)].slice(0,6)}})
+        job.status='complete';job.phase='complete';job.percent=100
+      }catch(error:any){job.status='error';job.error=error?.message||'L’analyse du disque a échoué.'}
+      setTimeout(()=>libraryScanJobs.delete(id),60*60*1000)
+    })()
+  }catch(e){next(e)}
+})
+app.get('/api/library/drives/scan/:id',(req,res)=>{const job=libraryScanJobs.get(req.params.id);if(!job)return res.status(404).json({error:'Analyse introuvable ou terminée depuis trop longtemps.'});res.json(job)})
 app.get('/api/media/:id/stream', (req, res) => {
   const item = db.prepare('SELECT path FROM media WHERE id=?').get(req.params.id) as { path?: string } | undefined
   if (!item?.path || !fs.existsSync(item.path)) return res.status(404).json({ error: 'Fichier indisponible' })
@@ -229,6 +253,10 @@ app.post('/api/settings/omdb/test', async (req, res, next) => {
   try { res.json(await testOmdb(z.object({ apiKey:z.string() }).parse(req.body).apiKey)) }
   catch (e) { next(e) }
 })
+app.post('/api/settings/qbittorrent/test',async(req,res,next)=>{
+  try{const data=z.object({url:z.string().trim().optional(),username:z.string().optional(),password:z.string().optional()}).parse(req.body);res.json(await testQbit(data.url,data.username,data.password))}
+  catch(e){next(e)}
+})
 app.get('/api/update/check', async (_req, res, next) => { try { res.json(await checkForUpdate()) } catch (e) { next(e) } })
 app.get('/api/update/state', (_req, res) => res.json({ updating: isUpdateRunning() }))
 app.post('/api/update/apply', async (req, res, next) => {
@@ -268,5 +296,5 @@ app.use((error: any, _req: express.Request, res: express.Response, _next: expres
 app.listen(port, '0.0.0.0', () => console.log(`MoodFlix · http://0.0.0.0:${port}`))
 
 scanLibraries().catch(console.error)
-setInterval(() => scanLibraries().catch(console.error), 30000)
+setInterval(() => {if(!isLibraryScanRunning())scanLibraries().catch(console.error)}, 30000)
 startCecBridge()

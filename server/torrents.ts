@@ -20,14 +20,18 @@ export function buildQbitHeaders(base:string,cookie='',initial?:HeadersInit){
   return headers
 }
 
-async function loginQbit(base:string){
-  const body = new URLSearchParams({ username: getSetting('QBITTORRENT_USER','').trim() || 'admin', password: getSetting('QBITTORRENT_PASSWORD','') })
+async function authenticateQbit(base:string,username:string,password:string){
+  const body = new URLSearchParams({username:username.trim()||'admin',password})
   const login = await fetch(`${base}/api/v2/auth/login`, { method:'POST', body, headers:buildQbitHeaders(base) })
   const result=(await login.text()).trim()
   if(login.status===403)throw new Error('qBittorrent a temporairement bloqué les connexions après plusieurs échecs. Redémarrez qBittorrent puis vérifiez les identifiants dans les paramètres.')
   const cookie=login.headers.get('set-cookie')?.split(';')[0]||''
   if(!login.ok||result!=='Ok.'||!cookie)throw new Error('Connexion qBittorrent refusée. Vérifiez le nom d’utilisateur et le mot de passe WebUI dans les paramètres MoodFlix.')
-  qbitCookie=cookie
+  return cookie
+}
+
+async function loginQbit(base:string){
+  qbitCookie=await authenticateQbit(base,getSetting('QBITTORRENT_USER',''),getSetting('QBITTORRENT_PASSWORD',''))
   qbitCookieBase=base
 }
 
@@ -59,6 +63,18 @@ export async function addTorrent(url: string) {
   form.set('category', 'moodflix')
   form.set('savepath', getSetting('DOWNLOAD_DIR', '/srv/media/downloads'))
   await qbit('/api/v2/torrents/add', { method: 'POST', body: form })
+}
+
+export async function testQbit(baseValue?:string,usernameValue?:string,passwordValue?:string){
+  const base=resolveQbitBase(baseValue??getSetting('QBITTORRENT_URL',''))
+  let cookie:string,response:Response
+  try{
+    cookie=await authenticateQbit(base,usernameValue??getSetting('QBITTORRENT_USER',''),passwordValue??getSetting('QBITTORRENT_PASSWORD',''))
+    response=await fetch(`${base}/api/v2/app/version`,{headers:buildQbitHeaders(base,cookie),signal:AbortSignal.timeout(8000)})
+  }
+  catch(error:any){throw new Error(`Connexion à qBittorrent impossible : ${error?.name==='TimeoutError'?'délai dépassé':error?.message||'erreur réseau'}`)}
+  if(!response.ok)throw new Error(`qBittorrent a répondu avec l’erreur HTTP ${response.status}.`)
+  return{ok:true,version:(await response.text()).trim()||'inconnue'}
 }
 
 export function buildTorznabUrl(base: string, apiKey: string, params: Record<string, string>) {

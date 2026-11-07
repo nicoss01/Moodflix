@@ -8,7 +8,7 @@ Type=simple
 User=__USER__
 Group=__USER__
 Environment=HOME=__HOME__
-ExecStart=/usr/bin/qbittorrent-nox --webui-port=8080
+ExecStart=/usr/bin/qbittorrent-nox --webui-port=8080 --confirm-legal-notice
 Restart=on-failure
 RestartSec=5
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseMediaName } from './scanner.js'
+import { parseLsblk, parseMediaName } from './scanner.js'
 
 describe('parseMediaName', () => {
   it('reconnaît les films et leur année', () => {
@@ -12,5 +12,12 @@ describe('parseMediaName', () => {
     expect(parseMediaName('/media/Cosmos.9.S02E04.1080p.mkv')).toMatchObject({
       seriesTitle: 'Cosmos 9', kind: 'series', season: 2, episode: 4
     })
+  })
+  it('détecte une partition USB montée et ignore le disque système',()=>{
+    const drives=parseLsblk({blockdevices:[
+      {path:'/dev/mmcblk0',type:'disk',rm:0,children:[{path:'/dev/mmcblk0p2',type:'part',fstype:'ext4',mountpoints:['/']}]},
+      {path:'/dev/sda',type:'disk',tran:'usb',rm:1,model:'Portable',size:1000,children:[{path:'/dev/sda1',type:'part',rm:0,fstype:'exfat',label:'FILMS',size:900,mountpoints:['/media/nico/FILMS']}]}
+    ]})
+    expect(drives).toEqual([expect.objectContaining({device:'/dev/sda1',name:'FILMS',mountpoint:'/media/nico/FILMS',mounted:true,fileSystem:'exfat'})])
   })
 })

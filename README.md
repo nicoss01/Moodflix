@@ -11,7 +11,7 @@ MoodFlix est un media center personnel conçu pour Raspberry Pi et l’usage sur
 - tendances TMDB sur l’accueil et dans les sections Films/Séries lorsque la bibliothèque est vide ;
 - contenus recommandés et similaires affichés au bas de chaque fiche média ;
 - proposition « On regarde quoi ce soir ? » selon les participants, la durée et le type ;
-- découverte des films et épisodes sur les dossiers locaux et disques montés ;
+- détection des disques USB, sélection du disque à analyser et import progressif des films et épisodes ;
 - cache persistant des métadonnées et affiches afin de limiter les appels aux services tiers ;
 - reprise de lecture, lecteur plein écran et contrôles télécommande ;
 - recherche via une API Torznab compatible Prowlarr ou Jackett ;
@@ -44,6 +44,14 @@ sudo reboot
 
 La commande doit être lancée avec l'utilisateur normal créé par Raspberry Pi Imager, sans `sudo`. Le script demande lui-même les droits administrateur lorsque nécessaire, installe le dépôt dans `/opt/moodflix`, puis configure tous les services. Relancer la même commande met MoodFlix à jour par avance rapide Git avant de rejouer l'installation.
 
+Pour forcer une installation propre et recréer tous les réglages, profils, historiques et caches tout en conservant les fichiers vidéo et les téléchargements :
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/nicoss01/Moodflix/main/install.sh | bash -s -- --reset
+```
+
+Cette option remet aussi à zéro le mot de passe Web de qBittorrent afin que l’installateur puisse le récupérer, le rendre permanent et l’enregistrer automatiquement dans MoodFlix.
+
 L'assistant affiche le logo MoodFlix en ASCII coloré, une barre de progression animée et le détail des étapes GitHub, système, compilation et services. Les sorties techniques sont écrites dans un journal temporaire ; en cas d'échec, son chemin et ses dernières lignes sont affichés automatiquement pour faciliter le diagnostic.
 
 Pour inspecter le script avant de l'exécuter :
@@ -68,7 +76,7 @@ Depuis l’écran Paramètres, scannez le QR code puis renseignez :
 - une clé OMDb pour récupérer automatiquement le titre, le résumé, les genres, la classification et l’affiche lors de l’analyse de la bibliothèque ;
 - éventuellement une clé TMDB pour proposer des films et séries absents de la bibliothèque dans la page Recommandations.
 
-Les boutons **Tester** des réglages contrôlent les connexions Torznab et OMDb avant l’enregistrement. Sur l’écran Torrent, la recherche peut être saisie avec le clavier virtuel ou depuis un téléphone en scannant le QR code ; la requête est alors transmise immédiatement à la télévision.
+Les boutons **Tester** des réglages contrôlent les connexions qBittorrent, Torznab et OMDb avant l’enregistrement. Lors de l’installation, le mot de passe Web temporaire de qBittorrent est récupéré automatiquement, rendu permanent puis stocké dans les réglages MoodFlix. Sur l’écran Torrent, la recherche peut être saisie avec le clavier virtuel ou depuis un téléphone en scannant le QR code ; la requête est alors transmise immédiatement à la télévision.
 
 Sur Raspberry Pi OS Lite, UDisks et udiskie assurent l'automontage léger des périphériques USB sous `/media`. MoodFlix rescane automatiquement les dossiers configurés toutes les 30 secondes.
 

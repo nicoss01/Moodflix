@@ -3,7 +3,20 @@ set -Eeuo pipefail
 
 APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CURRENT_USER="$(id -un)"
-TOTAL_STEPS=7
+RESET_INSTALL=0
+while (($#)); do
+  case "$1" in
+    --reset|--reset-settings) RESET_INSTALL=1 ;;
+    --help|-h)
+      echo 'Usage : scripts/install-raspberry-pi.sh [--reset]'
+      echo '  --reset  Efface les réglages, profils, historique et cache sans supprimer les médias.'
+      exit 0
+      ;;
+    *) echo "Option inconnue : $1" >&2; exit 2 ;;
+  esac
+  shift
+done
+TOTAL_STEPS=$((7 + RESET_INSTALL))
 CURRENT_STEP=0
 LOG_FILE="$(mktemp /tmp/moodflix-install.XXXXXX.log)"
 INSTALL_OK=0
@@ -68,6 +81,9 @@ run_step() {
 
 if [[ "${MOODFLIX_BOOTSTRAP:-0}" != 1 ]]; then clear_screen; show_logo; fi
 printf "  %bInstallation légère · sans environnement de bureau%b\n\n" "$cyan" "$reset"
+if [[ "$RESET_INSTALL" -eq 1 ]]; then
+  printf "  %bRemise à zéro demandée · les médias et téléchargements sont conservés%b\n\n" "$red$bold" "$reset"
+fi
 sudo -v || fail "autorisation administrateur refusée"
 
 install_packages() {
@@ -92,6 +108,14 @@ prepare_storage() {
   sudo chown -R "$CURRENT_USER:$CURRENT_USER" /srv/media
 }
 
+reset_configuration() {
+  sudo systemctl stop moodflix-kiosk.service moodflix.service moodflix-qbittorrent.service 2>/dev/null || true
+  rm -f "$APP_DIR/data/moodflix.db" "$APP_DIR/data/moodflix.db-shm" "$APP_DIR/data/moodflix.db-wal"
+  rm -rf "$APP_DIR/data/artwork"
+  rm -f "$HOME/.config/qBittorrent/qBittorrent.conf"
+  rm -rf "$HOME/.cache/qBittorrent"
+}
+
 render_unit() {
   sed -e "s|__APP_DIR__|$APP_DIR|g" -e "s|__USER__|$CURRENT_USER|g" -e "s|__HOME__|$HOME|g" -e "s|__UID__|$(id -u)|g" "$1" | sudo tee "$2" >/dev/null
 }
@@ -109,10 +133,70 @@ configure_services() {
   sudo systemctl reset-failed moodflix-kiosk.service || true
 }
 
+save_qbittorrent_settings() {
+  local password="$1"
+  (cd "$APP_DIR" && MOODFLIX_DB_PATH="$APP_DIR/data/moodflix.db" MOODFLIX_QBIT_PASSWORD="$password" node --input-type=module -e '
+    import Database from "better-sqlite3";
+    const db=new Database(process.env.MOODFLIX_DB_PATH);
+    db.exec("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)");
+    const save=db.prepare("INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value");
+    save.run("QBITTORRENT_URL","http://127.0.0.1:8080");
+    save.run("QBITTORRENT_USER","admin");
+    save.run("QBITTORRENT_PASSWORD",process.env.MOODFLIX_QBIT_PASSWORD||"");
+    db.close();
+  ')
+}
+
+read_saved_qbittorrent_password() {
+  [[ -f "$APP_DIR/data/moodflix.db" ]] || return 0
+  (cd "$APP_DIR" && MOODFLIX_DB_PATH="$APP_DIR/data/moodflix.db" node --input-type=module -e '
+    import Database from "better-sqlite3";
+    const db=new Database(process.env.MOODFLIX_DB_PATH,{readonly:true});
+    try{process.stdout.write(db.prepare("SELECT value FROM settings WHERE key=?").get("QBITTORRENT_PASSWORD")?.value||"")}catch{}
+    db.close();
+  ') 2>/dev/null || true
+}
+
+configure_qbittorrent_credentials() {
+  local password started_at response cookie_file preferences config_file
+  password="$(read_saved_qbittorrent_password)"
+  if [[ -n "$password" ]]; then
+    save_qbittorrent_settings "$password"
+    return 0
+  fi
+
+  # On ne réinitialise que le secret WebUI : les torrents existants restent intacts.
+  sudo systemctl stop moodflix-qbittorrent.service || true
+  config_file="$HOME/.config/qBittorrent/qBittorrent.conf"
+  if [[ -f "$config_file" ]]; then
+    sed -i '/^WebUI\\Password_/d;/^WebUI\\Username=/d' "$config_file"
+  fi
+  started_at="$(date --iso-8601=seconds)"
+  sudo systemctl start moodflix-qbittorrent.service
+  for _ in $(seq 1 30); do
+    password="$(sudo journalctl -u moodflix-qbittorrent.service --since "$started_at" --no-pager 2>/dev/null | sed -nE 's/.*temporary password is provided for this session: (.*)$/\1/Ip' | tail -n 1 | tr -d '\r' || true)"
+    [[ -n "$password" ]] && break
+    sleep 1
+  done
+  [[ -n "$password" ]] || { echo 'Mot de passe temporaire qBittorrent introuvable dans le journal du service.' >&2; return 1; }
+
+  cookie_file="$(mktemp /tmp/moodflix-qbit-cookie.XXXXXX)"
+  response="$(curl -sS -c "$cookie_file" -H 'Referer: http://127.0.0.1:8080/' \
+    --data-urlencode 'username=admin' --data-urlencode "password=$password" \
+    http://127.0.0.1:8080/api/v2/auth/login)"
+  if [[ "$response" != 'Ok.' ]]; then rm -f "$cookie_file"; echo 'qBittorrent a refusé son mot de passe temporaire.' >&2; return 1; fi
+  preferences="$(MOODFLIX_QBIT_PASSWORD="$password" node -e 'process.stdout.write(JSON.stringify({web_ui_username:"admin",web_ui_password:process.env.MOODFLIX_QBIT_PASSWORD}))')"
+  curl -fsS -b "$cookie_file" -H 'Referer: http://127.0.0.1:8080/' \
+    --data-urlencode "json=$preferences" http://127.0.0.1:8080/api/v2/app/setPreferences >/dev/null
+  rm -f "$cookie_file"
+  save_qbittorrent_settings "$password"
+}
+
 enable_services() {
   sudo systemctl enable moodflix.service moodflix-kiosk.service moodflix-qbittorrent.service
-  sudo systemctl restart moodflix.service
   sudo systemctl restart moodflix-qbittorrent.service
+  configure_qbittorrent_credentials
+  sudo systemctl restart moodflix.service
 }
 
 run_step 'Paquets multimédia et affichage minimal' install_packages
@@ -120,6 +204,7 @@ run_step 'Moteur Node.js' install_node
 run_step 'Dépendances MoodFlix' install_dependencies
 run_step 'Compilation de l’interface' build_application
 run_step 'Bibliothèque et stockage' prepare_storage
+if [[ "$RESET_INSTALL" -eq 1 ]]; then run_step 'Remise à zéro des réglages' reset_configuration; fi
 run_step 'Configuration des services' configure_services
 run_step 'Activation au démarrage' enable_services
 

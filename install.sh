@@ -8,6 +8,24 @@ TOTAL_STEPS=3
 CURRENT_STEP=0
 LOG_FILE="$(mktemp /tmp/moodflix-bootstrap.XXXXXX.log)"
 INSTALL_OK=0
+RESET_INSTALL=0
+PREVIEW=0
+
+while (($#)); do
+  case "$1" in
+    --reset|--reset-settings) RESET_INSTALL=1 ;;
+    --preview) PREVIEW=1 ;;
+    --help|-h)
+      echo 'Installation : curl -fsSL https://raw.githubusercontent.com/nicoss01/Moodflix/main/install.sh | bash'
+      echo 'Remise à zéro: curl -fsSL https://raw.githubusercontent.com/nicoss01/Moodflix/main/install.sh | bash -s -- --reset'
+      echo 'Aperçu      : bash install.sh --preview'
+      rm -f "$LOG_FILE"
+      exit 0
+      ;;
+    *) echo "Option inconnue : $1" >&2; rm -f "$LOG_FILE"; exit 2 ;;
+  esac
+  shift
+done
 
 if [[ -t 1 && -z "${NO_COLOR:-}" ]]; then
   red=$'\033[38;5;197m'; white=$'\033[97m'; cyan=$'\033[38;5;45m'
@@ -68,14 +86,7 @@ run_step() {
   CURRENT_STEP=$((CURRENT_STEP + 1)); draw_progress "$CURRENT_STEP" -1 '✓'; printf '\n'
 }
 
-if [[ "${1:-}" == "--help" ]]; then
-  echo 'Installation : curl -fsSL https://raw.githubusercontent.com/nicoss01/Moodflix/main/install.sh | bash'
-  echo 'Aperçu      : bash install.sh --preview'
-  INSTALL_OK=1
-  exit 0
-fi
-
-if [[ "${1:-}" == "--preview" ]]; then
+if [[ "$PREVIEW" -eq 1 ]]; then
   clear_screen
   show_logo
   run_step 'Outils de téléchargement' sleep 0.35
@@ -87,6 +98,10 @@ fi
 
 clear_screen
 show_logo
+if [[ "$RESET_INSTALL" -eq 1 ]]; then
+  printf "  %bMode remise à zéro : réglages, profils et cache seront recréés.%b\n" "$red$bold" "$reset"
+  printf "  %bLes médias et téléchargements ne seront pas supprimés.%b\n\n" "$cyan" "$reset"
+fi
 [[ "$(id -u)" -ne 0 ]] || fail "lancez cette commande sans sudo ; le script demandera sudo au bon moment."
 command -v sudo >/dev/null 2>&1 || fail "sudo est nécessaire."
 printf "  %bMot de passe administrateur requis pour préparer le Raspberry Pi.%b\n" "$cyan" "$reset"
@@ -125,4 +140,7 @@ run_step 'Préparation de l’installation système' chmod +x "$INSTALL_DIR/scri
 INSTALL_OK=1
 rm -f "$LOG_FILE"
 export MOODFLIX_BOOTSTRAP=1
+if [[ "$RESET_INSTALL" -eq 1 ]]; then
+  exec "$INSTALL_DIR/scripts/install-raspberry-pi.sh" --reset
+fi
 exec "$INSTALL_DIR/scripts/install-raspberry-pi.sh"

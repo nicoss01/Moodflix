@@ -6,7 +6,10 @@ export type ProfilePreferences = { profile:Profile; allGenres:string[]; selected
 export type TorrentResult = { id:string; title:string; link:string; size:number; seeds:number; peers:number; published?:string; source:string }
 export type TorznabTestResult = { ok:boolean; name:string; categories:number }
 export type OmdbTestResult = { ok:boolean; title:string; poster:boolean }
+export type QbitTestResult = { ok:boolean; version:string }
 export type UpdateStatus = { available:boolean; branch:string; localCommit:string; remoteCommit:string; checkedAt:string; commits:Array<{hash:string;shortHash:string;author:string;date:string;subject:string}> }
+export type DriveInfo = { id:string;device:string;name:string;label:string;model:string;size:number;fileSystem:string;mountpoint:string;mounted:boolean }
+export type DriveScan = { id:string;device:string;status:'waiting'|'running'|'complete'|'error';phase:'mounting'|'discovering'|'scanning'|'complete';current:number;total:number;percent:number;found:number;enriched:number;recent:Array<{title:string;kind:'movie'|'series';poster?:string}>;error?:string }
 
 async function request<T>(path:string, init?:RequestInit):Promise<T> {
   const response = await fetch(`/api${path}`, { headers: { 'Content-Type':'application/json', ...init?.headers }, ...init })
@@ -23,6 +26,9 @@ export const api = {
   series: (profileId?:number) => request<SeriesGroup[]>(`/series${profileId?`?profileId=${profileId}`:''}`),
   mediaById: (id:string) => request<Media>(`/media/${id}`),
   scan: () => request<{found:number;directories:string[];enriched:number}>('/library/scan', { method:'POST' }),
+  drives: () => request<DriveInfo[]>('/library/drives'),
+  startDriveScan: (device:string) => request<DriveScan>('/library/drives/scan', { method:'POST', body:JSON.stringify({device}) }),
+  driveScan: (id:string) => request<DriveScan>(`/library/drives/scan/${id}`),
   recommend: (body:object) => request<{ageLimit:number;items:Media[]}>('/recommendations', { method:'POST', body:JSON.stringify(body) }),
   profileRecommendations: (profileId:number,page=1) => request<{profile:Profile;preferences:{selectedGenres:string[];inferredGenres:string[]};source:'tmdb'|'library';items:Recommendation[];page:number;hasMore:boolean}>(`/recommendations/profile/${profileId}?page=${page}`),
   profilePreferences: (profileId:number) => request<ProfilePreferences>(`/profiles/${profileId}/preferences`),
@@ -46,6 +52,7 @@ export const api = {
   saveSettings: (settings:Record<string,string>) => request('/settings', { method:'PUT', body:JSON.stringify(settings) }),
   testTorznab: (url:string,apiKey:string) => request<TorznabTestResult>('/settings/torznab/test', { method:'POST', body:JSON.stringify({url,apiKey}) }),
   testOmdb: (apiKey:string) => request<OmdbTestResult>('/settings/omdb/test', { method:'POST', body:JSON.stringify({apiKey}) }),
+  testQbit: (url:string,username:string,password:string) => request<QbitTestResult>('/settings/qbittorrent/test', { method:'POST', body:JSON.stringify({url,username,password}) }),
   checkUpdate: () => request<UpdateStatus>('/update/check'),
   applyUpdate: () => request<{ok:boolean;status:UpdateStatus;restarting:boolean}>('/update/apply', { method:'POST', body:JSON.stringify({confirm:true}) }),
   restartSystem: () => request<{ok:boolean}>('/system/reboot', { method:'POST', body:JSON.stringify({confirm:'RESTART'}) })

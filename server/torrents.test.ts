@@ -1,5 +1,7 @@
-import { describe, expect, it } from 'vitest'
-import { buildQbitHeaders, buildTorznabUrl, resolveQbitBase } from './torrents.js'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { buildQbitHeaders, buildTorznabUrl, resolveQbitBase, testQbit } from './torrents.js'
+
+afterEach(()=>vi.restoreAllMocks())
 
 describe('buildTorznabUrl', () => {
   it('conserve les paramètres de l’indexeur et ajoute la clé Torznab', () => {
@@ -27,5 +29,15 @@ describe('resolveQbitBase',()=>{
     const headers=buildQbitHeaders('http://127.0.0.1:8080','SID=abc')
     expect(headers.get('Referer')).toBe('http://127.0.0.1:8080/')
     expect(headers.get('Cookie')).toBe('SID=abc')
+  })
+  it('teste réellement les identifiants avant de lire la version',async()=>{
+    const fetchMock=vi.spyOn(globalThis,'fetch')
+      .mockResolvedValueOnce(new Response('Ok.',{status:200,headers:{'set-cookie':'SID=session; HttpOnly'}}))
+      .mockResolvedValueOnce(new Response('5.1.2',{status:200}))
+    await expect(testQbit('http://127.0.0.1:8080','admin','secret')).resolves.toEqual({ok:true,version:'5.1.2'})
+    const login=fetchMock.mock.calls[0]
+    expect(login[0]).toBe('http://127.0.0.1:8080/api/v2/auth/login')
+    expect(String(login[1]?.body)).toContain('password=secret')
+    expect(new Headers(fetchMock.mock.calls[1][1]?.headers).get('Cookie')).toBe('SID=session')
   })
 })
