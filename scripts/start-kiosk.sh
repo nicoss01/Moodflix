@@ -10,7 +10,11 @@ if [[ -z "${WAYLAND_DISPLAY:-}" ]]; then
   xset -dpms
   xset s noblank
   openbox-session &
-  unclutter -idle 0 -root &
+  # Fallback X11 recommandé pour Chromium en kiosque : masque le pointeur
+  # après 0,1 s, y compris lorsqu'aucune souris n'est branchée.
+  if command -v unclutter >/dev/null 2>&1; then
+    unclutter --timeout 0.1 --start-hidden &
+  fi
 fi
 
 # Raspberry Pi OS Lite n'a pas d'automontage de supports amovibles.

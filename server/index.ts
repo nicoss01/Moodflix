@@ -13,8 +13,8 @@ import { db, getSetting, setSetting } from './db.js'
 import { detectDrives, isLibraryScanRunning, scanDrive, scanLibraries, type ScanProgress } from './scanner.js'
 import { addTorrent, listTorrents, searchTorznab, testQbit, testTorznab } from './torrents.js'
 import { startCompletedTorrentMonitor } from './torrent-importer.js'
-import { beginPlaybackStream, touchPlayback } from './playback-state.js'
-import { touchUiActivity } from './activity-state.js'
+import { beginPlaybackStream, isPlaybackActive, touchPlayback } from './playback-state.js'
+import { isUiIdle, touchUiActivity } from './activity-state.js'
 import { remoteEvents, startCecBridge } from './cec.js'
 import { applyUpdate, checkForUpdate, isUpdateRunning } from './updater.js'
 import { artworkDir, testOmdb } from './omdb.js'
@@ -308,7 +308,7 @@ app.post('/api/torrents/search/remote', (req, res) => {
   res.json({ ok: true })
 })
 
-const publicSettings = ['MEDIA_DIRS','DOWNLOAD_DIR','TMDB_API_KEY','OMDB_API_KEY','QBITTORRENT_URL','QBITTORRENT_USER','QBITTORRENT_PASSWORD','TORZNAB_URL','TORZNAB_API_KEY','DOWNLOAD_LIMIT','UPLOAD_LIMIT']
+const publicSettings = ['MEDIA_DIRS','DOWNLOAD_DIR','TMDB_API_KEY','OMDB_API_KEY','QBITTORRENT_URL','QBITTORRENT_USER','QBITTORRENT_PASSWORD','TORZNAB_URL','TORZNAB_API_KEY','DOWNLOAD_LIMIT','UPLOAD_LIMIT','SCREENSAVER_MINUTES']
 app.get('/api/settings', (_req, res) => res.json(Object.fromEntries(publicSettings.map(k => [k, getSetting(k)]))))
 app.put('/api/settings', (req, res) => { for (const key of publicSettings) if (typeof req.body[key] === 'string') setSetting(key, req.body[key]); res.json({ ok: true }) })
 app.post('/api/settings/torznab/test', async (req, res, next) => {
@@ -365,4 +365,13 @@ app.listen(port, '0.0.0.0', () => console.log(`MoodFlix · http://0.0.0.0:${port
 
 remoteEvents.on('key',touchUiActivity)
 startCecBridge()
+const refreshLibrary=async()=>{
+  if(isLibraryScanRunning()||isPlaybackActive()||!isUiIdle())return
+  try{await scanLibraries()}
+  catch(error:any){console.warn(`Actualisation automatique de la médiathèque reportée : ${error?.message||error}`)}
+}
+const initialLibraryRefresh=setTimeout(()=>void refreshLibrary(),20_000)
+initialLibraryRefresh.unref()
+const libraryRefreshTimer=setInterval(()=>void refreshLibrary(),30_000)
+libraryRefreshTimer.unref()
 startCompletedTorrentMonitor()

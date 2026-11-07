@@ -154,7 +154,10 @@ export function isLibraryScanRunning(){return scanRunning}
 
 export async function scanLibraries(extraDirs:string[]=[]){
   const configured=getSetting('MEDIA_DIRS','/srv/media,/media,/mnt').split(',').map(value=>value.trim()).filter(Boolean)
-  return scanDirectories([...new Set([...configured,...extraDirs])],true)
+  const downloadDirectory=getSetting('DOWNLOAD_DIR','/srv/media/downloads').trim()
+  const candidates=[...new Set([...configured,downloadDirectory,...extraDirs].filter(Boolean))]
+  const directories=candidates.filter(directory=>!candidates.some(parent=>parent!==directory&&path.resolve(directory).startsWith(path.resolve(parent)+path.sep)))
+  return scanDirectories(directories,true)
 }
 
 export async function scanDownloadedContent(contentPath:string){

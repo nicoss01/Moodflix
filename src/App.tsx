@@ -67,6 +67,7 @@ function useRemoteNavigation() {
     })
     syncModalFocus()
     const onKey = (event: KeyboardEvent) => {
+      if (event.type === 'keyup') return
       const target = event.target as HTMLElement
       const modal = activeModal()
       if (event.key === 'Tab' && modal) {
@@ -80,6 +81,22 @@ function useRemoteNavigation() {
       }
       const readOnlyTrigger = target instanceof HTMLInputElement && target.readOnly && (event.key === 'Enter' || event.key === ' ')
       const editableText = (target instanceof HTMLInputElement && !target.readOnly) || target instanceof HTMLTextAreaElement
+      const remoteKey = Boolean((event as KeyboardEvent & {moodflixRemote?: boolean}).moodflixRemote)
+      if (remoteKey && editableText && event.key === 'Backspace') {
+        event.preventDefault()
+        const scope = modal || document
+        const source = target.getBoundingClientRect()
+        const candidate = [...scope.querySelectorAll<HTMLElement>('[data-focus]:not([disabled])')]
+          .filter((node) => node !== target && node.offsetParent !== null && !((node instanceof HTMLInputElement && !node.readOnly) || node instanceof HTMLTextAreaElement))
+          .map((node) => {
+            const rect = node.getBoundingClientRect()
+            return {node, distance: Math.hypot(rect.left + rect.width / 2 - (source.left + source.width / 2), rect.top + rect.height / 2 - (source.top + source.height / 2))}
+          })
+          .sort((a, b) => a.distance - b.distance)[0]?.node
+        target.blur()
+        candidate?.focus()
+        return
+      }
       if (event.key === 'Escape' || (event.key === 'Backspace' && !editableText)) {
         event.preventDefault()
         if (modal) {
@@ -90,7 +107,8 @@ function useRemoteNavigation() {
         else navigate(-1)
         return
       }
-      if (['INPUT', 'TEXTAREA', 'SELECT', 'VIDEO'].includes(target?.tagName) && !readOnlyTrigger) return
+      const remoteTextArrow = remoteKey && editableText && ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)
+      if (['INPUT', 'TEXTAREA', 'SELECT', 'VIDEO'].includes(target?.tagName) && !readOnlyTrigger && !remoteTextArrow) return
       if (event.key === 'Enter' || event.key === ' ') {
         const active = document.activeElement as HTMLElement
         if (active?.matches('button,a,[role="button"],input[readonly]')) {
@@ -141,7 +159,11 @@ function useRemoteNavigation() {
         type?: 'keydown' | 'keyup'
       }
       if (key === 'MediaPlayPause' && type === 'keydown') window.dispatchEvent(new CustomEvent('moodflix:playpause'))
-      else (document.activeElement instanceof HTMLElement ? document.activeElement : window).dispatchEvent(new KeyboardEvent(type, {key, bubbles: true}))
+      else {
+        const remoteEvent = new KeyboardEvent(type, {key, bubbles: true})
+        Object.defineProperty(remoteEvent, 'moodflixRemote', {value: true})
+        ;(document.activeElement instanceof HTMLElement ? document.activeElement : window).dispatchEvent(remoteEvent)
+      }
     }
     return () => {
       clearTimeout(timer)
@@ -292,13 +314,24 @@ function Splash() {
 
 function ScreenSaverController() {
   const location = useLocation(),
-    [active, setActive] = useState(false)
+    [active, setActive] = useState(false),
+    [delayMs, setDelayMs] = useState<number | null>(120_000)
+  useEffect(() => {
+    const apply = (value?: string) => {
+      const minutes = Number(value || '2')
+      setDelayMs(Number.isFinite(minutes) && minutes > 0 ? minutes * 60_000 : null)
+    }
+    api.settings().then((settings) => apply(settings.SCREENSAVER_MINUTES)).catch(() => {})
+    const update = (event: Event) => apply((event as CustomEvent<string>).detail)
+    window.addEventListener('moodflix:screensaver-delay', update)
+    return () => window.removeEventListener('moodflix:screensaver-delay', update)
+  }, [])
   useEffect(() => {
     const playing = location.pathname.startsWith('/watch/')
     let timer: ReturnType<typeof setTimeout> | undefined
     const arm = () => {
       if (timer) clearTimeout(timer)
-      if (!playing && !active) timer = setTimeout(() => setActive(true), 120_000)
+      if (!playing && !active && delayMs !== null) timer = setTimeout(() => setActive(true), delayMs)
     }
     const activity = (event: Event) => {
       if (active) {
@@ -327,7 +360,7 @@ function ScreenSaverController() {
         } as EventListenerOptions),
       )
     }
-  }, [location.pathname, active])
+  }, [location.pathname, active, delayMs])
   return active ? <DvdScreenSaver /> : null
 }
 
@@ -1188,7 +1221,7 @@ function RecommendationPreferencesPage() {
 
 const LOCAL_MEDIA_LONG_PRESS_MS = 1100
 
-function LocalMediaCard({item, id, className = 'media-card', style, children, onActivate, onLongPress}: {item: Media; id?: string; className?: string; style?: ReturnType<typeof mediaArt>; children: any; onActivate?: () => void; onLongPress: (item: Media) => void}) {
+function LocalMediaCard({item, id, className = 'media-card', style, children, onActivate, onLongPress}: {item: Media; id?: string; className?: string; style?: ReturnType<typeof mediaArt>; children: any; onActivate?: () => void; onLongPress?: (item: Media) => void}) {
   const nav = useNavigate(),
     timer = useRef<ReturnType<typeof setTimeout> | null>(null),
     longTriggered = useRef(false)
@@ -1199,6 +1232,7 @@ function LocalMediaCard({item, id, className = 'media-card', style, children, on
     }
   }
   const start = () => {
+    if (!onLongPress) return
     longTriggered.current = false
     clear()
     timer.current = setTimeout(() => {
@@ -1220,6 +1254,7 @@ function LocalMediaCard({item, id, className = 'media-card', style, children, on
       onPointerCancel={clear}
       onPointerLeave={clear}
       onContextMenu={(event) => {
+        if (!onLongPress) return
         event.preventDefault()
         clear()
         longTriggered.current = true
@@ -1234,14 +1269,14 @@ function LocalMediaCard({item, id, className = 'media-card', style, children, on
         activate()
       }}
       onKeyDown={(event) => {
-        if ((event.key === 'Enter' || event.key === ' ') && !timer.current) {
+        if (onLongPress && (event.key === 'Enter' || event.key === ' ') && !timer.current) {
           event.preventDefault()
           event.stopPropagation()
           start()
         }
       }}
       onKeyUp={(event) => {
-        if (event.key === 'Enter' || event.key === ' ') {
+        if (onLongPress && (event.key === 'Enter' || event.key === ' ')) {
           event.preventDefault()
           event.stopPropagation()
           clear()
@@ -1351,7 +1386,7 @@ function MediaContextMenu({item, seriesTitle, season, initialAction, onClose, on
   )
 }
 
-function MediaRow({title, icon, items}: {title: string; icon: any; items: Media[]; profileId?: number}) {
+function MediaRow({title, icon, items, allowContext = true}: {title: string; icon: any; items: Media[]; profileId?: number; allowContext?: boolean}) {
   const [context, setContext] = useState<Media | null>(null)
   return (
     <section className="media-row">
@@ -1361,7 +1396,7 @@ function MediaRow({title, icon, items}: {title: string; icon: any; items: Media[
       </h2>
       <div className="cards">
         {items.map((item) => (
-          <LocalMediaCard key={item.id} item={item} onLongPress={setContext} style={mediaArt(item.poster)}>
+          <LocalMediaCard key={item.id} item={item} onLongPress={allowContext ? setContext : undefined} style={mediaArt(item.poster)}>
             <WatchStatus item={item} />
             <div className="card-art">
               <span>{item.kind === 'series' ? 'SÉRIE' : 'FILM'}</span>
@@ -1385,7 +1420,7 @@ function MediaRow({title, icon, items}: {title: string; icon: any; items: Media[
           </LocalMediaCard>
         ))}
       </div>
-      {context && <MediaContextMenu item={context} onClose={() => setContext(null)} />}
+      {allowContext && context && <MediaContextMenu item={context} onClose={() => setContext(null)} />}
     </section>
   )
 }
@@ -1643,72 +1678,21 @@ function Library({kind, profile}: {kind: 'movie'; profile: Profile | null}) {
           <HardDrive /> Actualiser les disques
         </button>
       </div>
-      {loading ? <LoaderCircle className="spin" /> : items.length ? <MediaRow title="Tous les films" icon={<Film />} items={items} profileId={profile?.id} /> : <RecommendationRow title="Films tendance" icon={<Film />} items={trending} onSelect={setSelected} />} {!loading && !items.length && !trending.length && <EmptyState icon={<Sparkles />} title="Aucun contenu à afficher" text="Ajoutez une clé TMDB dans les paramètres pour afficher les tendances, ou branchez un disque contenant vos médias." />}
+      {loading ? <LoaderCircle className="spin" /> : items.length ? <MediaRow title="Tous les films" icon={<Film />} items={items} profileId={profile?.id} allowContext={false} /> : <RecommendationRow title="Films tendance" icon={<Film />} items={trending} onSelect={setSelected} />} {!loading && !items.length && !trending.length && <EmptyState icon={<Sparkles />} title="Aucun contenu à afficher" text="Ajoutez une clé TMDB dans les paramètres pour afficher les tendances, ou branchez un disque contenant vos médias." />}
       {selected && <RecommendationDetails item={selected} profileId={profile?.id} onClose={() => setSelected(null)} />} {scanner && <DiskScanner onClose={() => setScanner(false)} onComplete={() => location.reload()} />}
     </section>
   )
 }
 
-function LocalSeriesCard({series, autoFocus, onLongPress}: {series: SeriesGroup; autoFocus: boolean; onLongPress: (series: SeriesGroup) => void}) {
-  const nav = useNavigate(),
-    timer = useRef<ReturnType<typeof setTimeout> | null>(null),
-    longTriggered = useRef(false)
-  const clear = () => {
-    if (timer.current) {
-      clearTimeout(timer.current)
-      timer.current = null
-    }
-  }
-  const start = () => {
-    longTriggered.current = false
-    clear()
-    timer.current = setTimeout(() => {
-      timer.current = null
-      longTriggered.current = true
-      onLongPress(series)
-    }, LOCAL_MEDIA_LONG_PRESS_MS)
-  }
+function LocalSeriesCard({series, autoFocus}: {series: SeriesGroup; autoFocus: boolean}) {
+  const nav = useNavigate()
   const activate = () => nav(`/details/series?title=${encodeURIComponent(series.title)}`)
-  useEffect(() => clear, [])
   return (
     <button
       data-focus
       autoFocus={autoFocus}
       className="series-card"
-      onPointerDown={start}
-      onPointerUp={clear}
-      onPointerCancel={clear}
-      onPointerLeave={clear}
-      onContextMenu={(event) => {
-        event.preventDefault()
-        clear()
-        longTriggered.current = true
-        onLongPress(series)
-      }}
-      onClick={(event) => {
-        if (longTriggered.current) {
-          event.preventDefault()
-          longTriggered.current = false
-          return
-        }
-        activate()
-      }}
-      onKeyDown={(event) => {
-        if ((event.key === 'Enter' || event.key === ' ') && !timer.current) {
-          event.preventDefault()
-          event.stopPropagation()
-          start()
-        }
-      }}
-      onKeyUp={(event) => {
-        if (event.key === 'Enter' || event.key === ' ') {
-          event.preventDefault()
-          event.stopPropagation()
-          clear()
-          if (!longTriggered.current) activate()
-          longTriggered.current = false
-        }
-      }}
+      onClick={activate}
     >
       <span className="series-poster" style={mediaArt(series.poster || series.backdrop)}>
         <b>
@@ -1730,7 +1714,6 @@ function SeriesLibrary({profile}: {profile: Profile | null}) {
   const [groups, setGroups] = useState<SeriesGroup[]>([]),
     [trending, setTrending] = useState<Recommendation[]>([]),
     [trendDetails, setTrendDetails] = useState<Recommendation | null>(null),
-    [context, setContext] = useState<SeriesGroup | null>(null),
     [loading, setLoading] = useState(true),
     [scanner, setScanner] = useState(false)
   useEffect(() => {
@@ -1765,7 +1748,7 @@ function SeriesLibrary({profile}: {profile: Profile | null}) {
       ) : groups.length ? (
         <div className="series-grid">
           {groups.map((series, index) => (
-            <LocalSeriesCard series={series} autoFocus={index === 0} onLongPress={setContext} key={series.id} />
+            <LocalSeriesCard series={series} autoFocus={index === 0} key={series.id} />
           ))}
         </div>
       ) : (
@@ -1773,7 +1756,6 @@ function SeriesLibrary({profile}: {profile: Profile | null}) {
       )}{' '}
       {!loading && !groups.length && !trending.length && <EmptyState icon={<Sparkles />} title="Aucune série à afficher" text="Branchez un disque contenant des épisodes ou ajoutez une clé TMDB dans les paramètres." />}
       {trendDetails && <RecommendationDetails item={trendDetails} profileId={profile?.id} onClose={() => setTrendDetails(null)} />} {scanner && <DiskScanner onClose={() => setScanner(false)} onComplete={() => location.reload()} />}
-      {context && context.episodes[0] && <MediaContextMenu item={context.episodes[0]} seriesTitle={context.title} onClose={() => setContext(null)} />}
     </section>
   )
 }
@@ -3316,6 +3298,18 @@ function SettingsScreen() {
                     <input data-focus type={key.includes('PASSWORD') || key.includes('API_KEY') ? 'password' : 'text'} value={settings[key] || ''} placeholder={placeholder} onChange={(e) => setSettings((s) => ({...s, [key]: e.target.value}))} />
                   </label>
                 ))}
+                <label>
+                  Délai avant mise en veille
+                  <select data-focus value={settings.SCREENSAVER_MINUTES || '2'} onChange={(e) => setSettings((current) => ({...current, SCREENSAVER_MINUTES: e.target.value}))}>
+                    <option value="0">Jamais</option>
+                    <option value="1">1 minute</option>
+                    <option value="2">2 minutes</option>
+                    <option value="5">5 minutes</option>
+                    <option value="10">10 minutes</option>
+                    <option value="15">15 minutes</option>
+                    <option value="30">30 minutes</option>
+                  </select>
+                </label>
               </div>
               <div className={`torznab-test ${qbitTest ? 'success' : qbitError ? 'failure' : ''}`}>
                 <div>
@@ -3385,6 +3379,7 @@ function SettingsScreen() {
                   className="primary"
                   onClick={() =>
                     api.saveSettings(settings).then(() => {
+                      window.dispatchEvent(new CustomEvent('moodflix:screensaver-delay', {detail: settings.SCREENSAVER_MINUTES || '2'}))
                       setSaved(true)
                       setTimeout(() => setSaved(false), 2000)
                     })

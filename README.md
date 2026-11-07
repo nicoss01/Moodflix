@@ -78,7 +78,7 @@ Depuis l’écran Paramètres, scannez le QR code puis renseignez :
 
 Les boutons **Tester** des réglages contrôlent les connexions qBittorrent, Torznab et OMDb avant l’enregistrement. Lors de l’installation, le mot de passe Web temporaire de qBittorrent est récupéré automatiquement, rendu permanent puis stocké dans les réglages MoodFlix. Sur l’écran Torrent, la recherche peut être saisie avec le clavier virtuel ou depuis un téléphone en scannant le QR code ; la requête est alors transmise immédiatement à la télévision.
 
-Sur Raspberry Pi OS Lite, UDisks et udiskie assurent l'automontage léger des périphériques USB sous `/media`. MoodFlix rescane automatiquement les dossiers configurés toutes les 30 secondes.
+Sur Raspberry Pi OS Lite, UDisks et udiskie assurent l'automontage léger des périphériques USB sous `/media`. MoodFlix rescane automatiquement les dossiers configurés et le dossier de téléchargement toutes les 30 secondes. Le kiosque Wayland utilise un thème de curseur transparent ; le mode X11 de secours lance aussi `unclutter --timeout 0.1 --start-hidden` pour masquer le pointeur sans mouvement préalable.
 
 ## Commandes utiles
 
