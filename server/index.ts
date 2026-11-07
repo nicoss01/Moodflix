@@ -16,6 +16,7 @@ import { applyUpdate, checkForUpdate, isUpdateRunning } from './updater.js'
 import { artworkDir, testOmdb } from './omdb.js'
 import { getProfilePreferences, getRecommendationsForProfile, getRelated, getTrending, saveProfilePreferences } from './recommendations.js'
 import { hasBeenWatched, WATCHED_RATIO } from './progress.js'
+import { findEpisodeNeighbors, type EpisodeLink } from './episodes.js'
 
 const app = express()
 const port = Number(process.env.PORT || 4242)
@@ -34,6 +35,7 @@ function localIp() {
 }
 
 function parseMedia(row: any) { return { ...row, genres: JSON.parse(row.genres || '[]'), available: Boolean(row.available), completed: Boolean(row.completed) } }
+function mediaContentType(file:string){return({'.mp4':'video/mp4','.m4v':'video/mp4','.mkv':'video/x-matroska','.webm':'video/webm','.ts':'video/mp2t','.avi':'video/x-msvideo','.mov':'video/quicktime'} as Record<string,string>)[path.extname(file).toLowerCase()]||'application/octet-stream'}
 function collapseSeriesMedia(items:any[]){
   const unique=new Map<string,any>()
   for(const item of items){
@@ -120,6 +122,14 @@ app.get('/api/media/:id', (req, res) => {
   if (!row) return res.status(404).json({ error: 'Média introuvable' })
   res.json(parseMedia(row))
 })
+app.get('/api/media/:id/neighbors',(req,res)=>{
+  const current=db.prepare('SELECT id,kind,COALESCE(series_title,title) AS series_title FROM media WHERE id=? AND available=1').get(req.params.id) as {id:number;kind:string;series_title:string}|undefined
+  if(!current||current.kind!=='series')return res.json({previous:null,next:null})
+  const episodes=(db.prepare(`SELECT id,title,season,episode FROM media
+    WHERE available=1 AND kind='series' AND COALESCE(series_title,title)=? COLLATE NOCASE
+    ORDER BY COALESCE(season,1),COALESCE(episode,0),id`).all(current.series_title) as EpisodeLink[])
+  res.json(findEpisodeNeighbors(episodes,current.id))
+})
 app.post('/api/library/scan', async (_req, res, next) => { try { res.json(await scanLibraries()) } catch (e) { next(e) } })
 app.get('/api/library/drives',async(_req,res,next)=>{try{res.json(await detectDrives())}catch(e){next(e)}})
 app.post('/api/library/drives/scan',async(req,res,next)=>{
@@ -146,10 +156,10 @@ app.get('/api/media/:id/stream', (req, res) => {
   const item = db.prepare('SELECT path FROM media WHERE id=?').get(req.params.id) as { path?: string } | undefined
   if (!item?.path || !fs.existsSync(item.path)) return res.status(404).json({ error: 'Fichier indisponible' })
   const stat = fs.statSync(item.path), range = req.headers.range
-  if (!range) { res.setHeader('Content-Length', stat.size); return fs.createReadStream(item.path).pipe(res) }
+  if (!range) { res.set({ 'Content-Length':String(stat.size), 'Content-Type':mediaContentType(item.path), 'Accept-Ranges':'bytes' }); return fs.createReadStream(item.path).pipe(res) }
   const [startText, endText] = range.replace(/bytes=/, '').split('-')
   const start = Number(startText), end = endText ? Number(endText) : stat.size - 1
-  res.status(206).set({ 'Accept-Ranges': 'bytes', 'Content-Range': `bytes ${start}-${end}/${stat.size}`, 'Content-Length': end-start+1, 'Content-Type': 'video/mp4' })
+  res.status(206).set({ 'Accept-Ranges': 'bytes', 'Content-Range': `bytes ${start}-${end}/${stat.size}`, 'Content-Length': end-start+1, 'Content-Type': mediaContentType(item.path) })
   fs.createReadStream(item.path, { start, end }).pipe(res)
 })
 app.put('/api/progress', (req, res) => {
