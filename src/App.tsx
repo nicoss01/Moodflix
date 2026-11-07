@@ -1562,7 +1562,7 @@ function DiskScanner({onClose, onComplete}: {onClose: () => void; onComplete: ()
           <div>
             <span className="eyebrow">IMPORTATION USB</span>
             <h2>{job ? 'Analyse de la médiathèque' : 'Choisissez un disque à analyser'}</h2>
-            <p>{job ? 'Les médias sont ajoutés au fur et à mesure avec leurs informations et leurs affiches.' : 'MoodFlix détecte les partitions USB connectées au Raspberry Pi.'}</p>
+            <p>{job ? 'Le disque sélectionné et le dossier de téléchargement sont analysés ensemble.' : 'MoodFlix détecte les partitions USB et inclut automatiquement le dossier de téléchargement dans l’analyse.'}</p>
           </div>
         </header>
         {!job ? (
@@ -1596,7 +1596,7 @@ function DiskScanner({onClose, onComplete}: {onClose: () => void; onComplete: ()
                 <RefreshCw /> Détecter à nouveau
               </button>
               <button data-focus className="primary" disabled={!selected} onClick={start}>
-                <Search /> Analyser ce disque
+                <Search /> Analyser le disque et les téléchargements
               </button>
             </footer>
           </>
@@ -3241,6 +3241,9 @@ function SettingsScreen() {
   const [qbitTest, setQbitTest] = useState<QbitTestResult | null>(null),
     [qbitError, setQbitError] = useState(''),
     [testingQbit, setTestingQbit] = useState(false)
+  const [reindexing, setReindexing] = useState(false),
+    [libraryMessage, setLibraryMessage] = useState(''),
+    [libraryError, setLibraryError] = useState('')
   useEffect(() => {
     api.settings().then(setSettings)
     api.qr().then(setQr)
@@ -3259,6 +3262,20 @@ function SettingsScreen() {
     ['UPLOAD_LIMIT', 'Limite envoi (Ko/s)', '0'],
   ]
   const finish = () => api.completeOnboarding().then(() => setFinished(true))
+  const forceReindex = async () => {
+    setReindexing(true)
+    setLibraryMessage('')
+    setLibraryError('')
+    try {
+      await api.saveSettings(settings)
+      const result = await api.reindex()
+      setLibraryMessage(`${result.found} média${result.found > 1 ? 's' : ''} réindexé${result.found > 1 ? 's' : ''} dans ${result.directories.length} dossier${result.directories.length > 1 ? 's' : ''}, dont le dossier de téléchargement.`)
+    } catch (e: any) {
+      setLibraryError(e.message || 'La réindexation a échoué.')
+    } finally {
+      setReindexing(false)
+    }
+  }
   const testEngine = async () => {
     setTestingTorznab(true)
     setTorznabError('')
@@ -3413,7 +3430,10 @@ function SettingsScreen() {
               </div>
               <div className="settings-actions">
                 <button data-focus onClick={() => api.scan().then((r) => alert(`${r.found} média(s) détecté(s), ${r.enriched || 0} enrichi(s) via OMDb`))}>
-                  <HardDrive /> Analyser maintenant
+                  <HardDrive /> Analyse rapide
+                </button>
+                <button data-focus disabled={reindexing} onClick={forceReindex}>
+                  {reindexing ? <LoaderCircle className="spin" /> : <RefreshCw />} {reindexing ? 'Réindexation…' : 'Forcer la réindexation'}
                 </button>
                 <button
                   data-focus
@@ -3437,6 +3457,8 @@ function SettingsScreen() {
                   )}
                 </button>
               </div>
+              {libraryMessage && <div className="library-scan-result"><Check /> {libraryMessage}</div>}
+              {libraryError && <Notice text={libraryError} />}
               <p className="legal">
                 <Info /> MoodFlix ne fournit aucun contenu. Utilisez uniquement des sources et fichiers que vous avez le droit de télécharger et de consulter.
               </p>

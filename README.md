@@ -78,7 +78,9 @@ Depuis l’écran Paramètres, scannez le QR code puis renseignez :
 
 Les boutons **Tester** des réglages contrôlent les connexions qBittorrent, Torznab et OMDb avant l’enregistrement. Lors de l’installation, le mot de passe Web temporaire de qBittorrent est récupéré automatiquement, rendu permanent puis stocké dans les réglages MoodFlix. Sur l’écran Torrent, la recherche peut être saisie avec le clavier virtuel ou depuis un téléphone en scannant le QR code ; la requête est alors transmise immédiatement à la télévision.
 
-Sur Raspberry Pi OS Lite, UDisks et udiskie assurent l'automontage léger des périphériques USB sous `/media`. MoodFlix rescane automatiquement les dossiers configurés et le dossier de téléchargement toutes les 30 secondes. Pour le kiosque Wayland, l’installation retire la fausse capacité « pointeur » des contrôleurs HDMI-CEC `vc4-hdmi` tout en conservant leurs touches ; si `ydotool` est disponible, il déplace aussi le curseur fantôme hors écran au démarrage. Le thème transparent reste un filet de sécurité. Le mode X11 de secours lance `unclutter --timeout 0.1 --start-hidden`.
+Sur Raspberry Pi OS Lite, UDisks et udiskie assurent l'automontage léger des périphériques USB sous `/media`. MoodFlix rescane automatiquement les dossiers configurés et le dossier de téléchargement toutes les 30 secondes. Pour le kiosque Wayland, l’installation retire la fausse capacité « pointeur » des contrôleurs HDMI-CEC `vc4-hdmi` tout en conservant leurs touches ; si `ydotool` est disponible, il déplace aussi le curseur fantôme hors écran au démarrage. Le thème transparent `MoodFlixInvisible` est également déclaré comme thème système par défaut via `/usr/share/icons/default/index.theme`. Le mode X11 de secours lance `unclutter --timeout 0.1 --start-hidden`.
+
+Le bouton **Forcer la réindexation** des paramètres réanalyse les dossiers médias, le dossier de téléchargement et les chemins de torrents déjà connus. L’analyse d’un disque USB inclut elle aussi automatiquement le dossier de téléchargement.
 
 ## Commandes utiles
 

@@ -10,7 +10,7 @@ import { randomUUID } from 'node:crypto'
 import QRCode from 'qrcode'
 import { z } from 'zod'
 import { db, getSetting, setSetting } from './db.js'
-import { detectDrives, isLibraryScanRunning, scanDrive, scanLibraries, type ScanProgress } from './scanner.js'
+import { detectDrives, forceReindexLibraries, isLibraryScanRunning, scanDrive, scanLibraries, type ScanProgress } from './scanner.js'
 import { addTorrent, deleteTorrent, listTorrents, redownloadTorrent, searchTorznab, testQbit, testTorznab, torrentContentExists } from './torrents.js'
 import { startCompletedTorrentMonitor } from './torrent-importer.js'
 import { beginPlaybackStream, isPlaybackActive, touchPlayback } from './playback-state.js'
@@ -142,6 +142,7 @@ app.get('/api/media/:id/neighbors',(req,res)=>{
   res.json(findEpisodeNeighbors(episodes,current.id))
 })
 app.post('/api/library/scan', async (_req, res, next) => { try { res.json(await scanLibraries()) } catch (e) { next(e) } })
+app.post('/api/library/reindex', async (_req, res, next) => { try { res.json(await forceReindexLibraries()) } catch (e) { next(e) } })
 app.get('/api/library/drives',async(_req,res,next)=>{try{res.json(await detectDrives())}catch(e){next(e)}})
 app.post('/api/library/drives/scan',async(req,res,next)=>{
   try{

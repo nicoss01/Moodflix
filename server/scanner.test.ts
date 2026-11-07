@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { isVideoCandidate, parseLsblk, parseMediaName } from './scanner.js'
+import path from 'node:path'
+import { isVideoCandidate, parseLsblk, parseMediaName, uniqueScanDirectories } from './scanner.js'
 
 describe('parseMediaName', () => {
   it('reconnaît les films et leur année', () => {
@@ -34,5 +35,12 @@ describe('isVideoCandidate',()=>{
     expect(isVideoCandidate('enregistrement.ts')).toBe(false)
     expect(isVideoCandidate('error.d.ts')).toBe(false)
     expect(isVideoCandidate('affiche.jpg')).toBe(false)
+  })
+})
+
+describe('uniqueScanDirectories',()=>{
+  it('inclut le dossier de téléchargement sans rescanner un sous-dossier déjà couvert',()=>{
+    const media=path.resolve('srv','media'),downloads=path.join(media,'downloads'),usb=path.resolve('media','usb')
+    expect(uniqueScanDirectories([media,downloads,usb,media])).toEqual([media,usb])
   })
 })

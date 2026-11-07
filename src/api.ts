@@ -35,6 +35,7 @@ export const api = {
   deleteSeasonFiles: (title:string,season:number) => request<{ok:boolean;count:number}>('/series/season/files', { method:'DELETE', body:JSON.stringify({title,season,confirm:true}) }),
   episodeNeighbors: (id:string) => request<{previous:EpisodeLink|null;next:EpisodeLink|null}>(`/media/${id}/neighbors`),
   scan: () => request<{found:number;directories:string[];enriched:number}>('/library/scan', { method:'POST' }),
+  reindex: () => request<{found:number;directories:string[];enriched:number}>('/library/reindex', { method:'POST' }),
   drives: () => request<DriveInfo[]>('/library/drives'),
   startDriveScan: (device:string) => request<DriveScan>('/library/drives/scan', { method:'POST', body:JSON.stringify({device}) }),
   driveScan: (id:string) => request<DriveScan>(`/library/drives/scan/${id}`),

@@ -86,13 +86,13 @@ export function parseMediaName(file:string){
   return{title:base.replace(/\b(19\d{2}|20\d{2})\b.*$/,'').trim(),kind:'movie' as const,seriesTitle:null,season:null,episode:null,year:year?+year[1]:null}
 }
 
-async function probeVideo(file:string):Promise<number|null>{
+async function probeVideo(file:string):Promise<number>{
   try{
     const {stdout}=await execFileAsync('ffprobe',['-v','error','-select_streams','v:0','-show_entries','stream=codec_type:format=duration','-of','json',file],{timeout:10000,maxBuffer:1024*1024})
     const data=JSON.parse(stdout) as {streams?:Array<{codec_type?:string}>;format?:{duration?:string}}
-    if(!data.streams?.some(stream=>stream.codec_type==='video'))return null
+    if(!data.streams?.some(stream=>stream.codec_type==='video'))return 0
     return Math.round(Number(data.format?.duration)||0)
-  }catch{return null}
+  }catch{return 0}
 }
 
 function markUnavailable(directories:string[],all:boolean){
@@ -102,7 +102,7 @@ function markUnavailable(directories:string[],all:boolean){
   db.transaction(()=>{for(const row of rows){const item=path.resolve(row.path);if(roots.some(root=>item===root||item.startsWith(root+path.sep)))update.run(row.id)}})()
 }
 
-async function scanDirectories(directories:string[],resetAll:boolean,onProgress?:(progress:ScanProgress)=>void,lockAcquired=false){
+async function scanDirectories(directories:string[],resetAll:boolean,onProgress?:(progress:ScanProgress)=>void,lockAcquired=false,forceProbe=false){
   if(!lockAcquired){
     if(scanRunning)throw new Error('Une analyse de la médiathèque est déjà en cours.')
     scanRunning=true
@@ -126,9 +126,8 @@ async function scanDirectories(directories:string[],resetAll:boolean,onProgress?
       try{
         const existing=findMedia.get(file) as {overview:string;poster:string|null;duration:number;file_size:number;file_mtime:number}|undefined
         const stat=await fs.promises.stat(file)
-        const unchanged=Boolean(existing&&existing.file_size===stat.size&&existing.file_mtime===Math.round(stat.mtimeMs)&&existing.duration>=0)
+        const unchanged=Boolean(!forceProbe&&existing&&existing.file_size===stat.size&&existing.file_mtime===Math.round(stat.mtimeMs)&&existing.duration>=0)
         const mediaDuration=unchanged?existing!.duration:await probeVideo(file)
-        if(mediaDuration===null)continue
         found++
         upsert.run({path:file,...identity,duration:mediaDuration,fileSize:stat.size,fileMtime:Math.round(stat.mtimeMs)})
         if(existing?.poster&&/^https?:\/\//i.test(existing.poster)){try{const cached=await cacheArtwork(existing.poster);if(cached!==existing.poster)updatePoster.run(cached,file)}catch{}}
@@ -152,12 +151,22 @@ async function scanDirectories(directories:string[],resetAll:boolean,onProgress?
 
 export function isLibraryScanRunning(){return scanRunning}
 
-export async function scanLibraries(extraDirs:string[]=[]){
+export function uniqueScanDirectories(candidates:string[]){
+  const unique=[...new Set(candidates.filter(Boolean).map(directory=>path.resolve(directory)))]
+  return unique.filter(directory=>!unique.some(parent=>parent!==directory&&directory.startsWith(parent+path.sep)))
+}
+
+export async function scanLibraries(extraDirs:string[]=[],force=false){
   const configured=getSetting('MEDIA_DIRS','/srv/media,/media,/mnt').split(',').map(value=>value.trim()).filter(Boolean)
   const downloadDirectory=getSetting('DOWNLOAD_DIR','/srv/media/downloads').trim()
-  const candidates=[...new Set([...configured,downloadDirectory,...extraDirs].filter(Boolean))]
-  const directories=candidates.filter(directory=>!candidates.some(parent=>parent!==directory&&path.resolve(directory).startsWith(path.resolve(parent)+path.sep)))
-  return scanDirectories(directories,true)
+  const directories=uniqueScanDirectories([...configured,downloadDirectory,...extraDirs])
+  return scanDirectories(directories,true,undefined,false,force)
+}
+
+export async function forceReindexLibraries(){
+  const importedPaths=(db.prepare('SELECT content_path FROM torrent_imports').all() as {content_path:string}[]).map(item=>item.content_path)
+  metadataAttempts.clear()
+  return scanLibraries(importedPaths,true)
 }
 
 export async function scanDownloadedContent(contentPath:string){
@@ -171,7 +180,9 @@ export async function scanDrive(device:string,onProgress?:(progress:ScanProgress
   scanRunning=true
   try{
     const drive=await ensureDriveMounted(device)
-    const result=await scanDirectories([drive.mountpoint],false,onProgress,true)
+    const downloadDirectory=getSetting('DOWNLOAD_DIR','/srv/media/downloads').trim()
+    const directories=uniqueScanDirectories([drive.mountpoint,downloadDirectory])
+    const result=await scanDirectories(directories,false,onProgress,true)
     return{...result,drive}
   }finally{scanRunning=false}
 }

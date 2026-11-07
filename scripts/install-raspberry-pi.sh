@@ -127,6 +127,10 @@ install_invisible_cursor() {
     sudo ln -sfn left_ptr "$theme/cursors/$name"
   done
   printf '[Icon Theme]\nName=MoodFlix Invisible\nComment=Curseur transparent pour le kiosque TV\n' | sudo tee "$theme/index.theme" >/dev/null
+  # Certains clients Wayland ignorent XCURSOR_THEME et demandent directement
+  # le thème système « default ». On le fait hériter du thème transparent local.
+  sudo install -d -m 0755 /usr/share/icons/default
+  printf '[Icon Theme]\nInherits=MoodFlixInvisible\n' | sudo tee /usr/share/icons/default/index.theme >/dev/null
   if [[ "$work" == /tmp/moodflix-cursor.* ]]; then rm -rf -- "$work"; fi
 }
 
