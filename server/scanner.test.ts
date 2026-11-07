@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseLsblk, parseMediaName } from './scanner.js'
+import { isVideoCandidate, parseLsblk, parseMediaName } from './scanner.js'
 
 describe('parseMediaName', () => {
   it('reconnaît les films et leur année', () => {
@@ -19,5 +19,14 @@ describe('parseMediaName', () => {
       {path:'/dev/sda',type:'disk',tran:'usb',rm:1,model:'Portable',size:1000,children:[{path:'/dev/sda1',type:'part',rm:0,fstype:'exfat',label:'FILMS',size:900,mountpoints:['/media/nico/FILMS']}]}
     ]})
     expect(drives).toEqual([expect.objectContaining({device:'/dev/sda1',name:'FILMS',mountpoint:'/media/nico/FILMS',mounted:true,fileSystem:'exfat'})])
+  })
+})
+
+describe('isVideoCandidate',()=>{
+  it('accepte les conteneurs vidéo et rejette les déclarations TypeScript',()=>{
+    expect(isVideoCandidate('Film.2026.mkv')).toBe(true)
+    expect(isVideoCandidate('enregistrement.ts')).toBe(true)
+    expect(isVideoCandidate('error.d.ts')).toBe(false)
+    expect(isVideoCandidate('affiche.jpg')).toBe(false)
   })
 })

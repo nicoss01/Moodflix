@@ -7,6 +7,7 @@ import { cacheArtwork, lookupOmdb } from './omdb.js'
 
 const execFileAsync = promisify(execFile)
 const VIDEO_EXTENSIONS = new Set(['.mp4', '.mkv', '.avi', '.mov', '.m4v', '.webm', '.ts'])
+const SKIPPED_DIRECTORIES = new Set(['node_modules','.git','$recycle.bin','system volume information','__macosx'])
 const metadataAttempts = new Map<string, number>()
 const METADATA_RETRY_MS = 6 * 60 * 60 * 1000
 let scanRunning=false
@@ -14,13 +15,18 @@ let scanRunning=false
 export type DriveInfo={id:string;device:string;name:string;label:string;model:string;size:number;fileSystem:string;mountpoint:string;mounted:boolean}
 export type ScanProgress={phase:'discovering'|'scanning'|'complete';current:number;total:number;percent:number;found:number;enriched:number;latest?:{title:string;kind:'movie'|'series';poster?:string}}
 
+export function isVideoCandidate(filename:string){
+  const lower=filename.toLowerCase()
+  return !lower.endsWith('.d.ts')&&VIDEO_EXTENSIONS.has(path.extname(lower))
+}
+
 async function walk(dir:string,files:string[]=[],onFound?:(count:number)=>void):Promise<string[]>{
   let entries:fs.Dirent[]
   try{entries=await fs.promises.readdir(dir,{withFileTypes:true})}catch{return files}
   for(const entry of entries){
     const full=path.join(dir,entry.name)
-    if(entry.isDirectory())await walk(full,files,onFound)
-    else if(VIDEO_EXTENSIONS.has(path.extname(entry.name).toLowerCase())){files.push(full);onFound?.(files.length)}
+    if(entry.isDirectory()&&!SKIPPED_DIRECTORIES.has(entry.name.toLowerCase()))await walk(full,files,onFound)
+    else if(entry.isFile()&&isVideoCandidate(entry.name)){files.push(full);onFound?.(files.length)}
     if(files.length&&files.length%50===0)await new Promise<void>(resolve=>setImmediate(resolve))
   }
   return files
@@ -69,8 +75,13 @@ export function parseMediaName(file:string){
   return{title:base.replace(/\b(19\d{2}|20\d{2})\b.*$/,'').trim(),kind:'movie' as const,seriesTitle:null,season:null,episode:null,year:year?+year[1]:null}
 }
 
-async function duration(file:string){
-  try{const {stdout}=await execFileAsync('ffprobe',['-v','error','-show_entries','format=duration','-of','default=noprint_wrappers=1:nokey=1',file],{timeout:10000});return Math.round(Number(stdout.trim())||0)}catch{return 0}
+async function probeVideo(file:string):Promise<number|null>{
+  try{
+    const {stdout}=await execFileAsync('ffprobe',['-v','error','-select_streams','v:0','-show_entries','stream=codec_type:format=duration','-of','json',file],{timeout:10000,maxBuffer:1024*1024})
+    const data=JSON.parse(stdout) as {streams?:Array<{codec_type?:string}>;format?:{duration?:string}}
+    if(!data.streams?.some(stream=>stream.codec_type==='video'))return null
+    return Math.round(Number(data.format?.duration)||0)
+  }catch{return null}
 }
 
 function markUnavailable(directories:string[],all:boolean){
@@ -97,11 +108,15 @@ async function scanDirectories(directories:string[],resetAll:boolean,onProgress?
     const findMedia=db.prepare('SELECT overview,poster FROM media WHERE path=?')
     const enrich=db.prepare(`UPDATE media SET title=CASE WHEN overview='' THEN @title ELSE title END,series_title=COALESCE(@seriesTitle,series_title),year=COALESCE(@year,year),age_rating=@ageRating,genres=@genres,overview=CASE WHEN overview='' THEN @overview ELSE overview END,poster=CASE WHEN poster IS NULL OR poster='' THEN @poster ELSE poster END WHERE path=@path`)
     const updatePoster=db.prepare('UPDATE media SET poster=? WHERE path=?')
-    let enriched=0,current=0
+    let enriched=0,current=0,found=0
     for(const file of files){
       const identity=parseMediaName(file)
+      let latest:ScanProgress['latest']
       try{
-        upsert.run({path:file,...identity,duration:await duration(file)})
+        const mediaDuration=await probeVideo(file)
+        if(mediaDuration===null)continue
+        found++
+        upsert.run({path:file,...identity,duration:mediaDuration})
         const existing=findMedia.get(file) as {overview:string;poster:string|null}|undefined
         if(existing?.poster&&/^https?:\/\//i.test(existing.poster)){try{const cached=await cacheArtwork(existing.poster);if(cached!==existing.poster)updatePoster.run(cached,file)}catch{}}
         const lastAttempt=metadataAttempts.get(file)||0
@@ -109,14 +124,15 @@ async function scanDirectories(directories:string[],resetAll:boolean,onProgress?
           metadataAttempts.set(file,Date.now())
           try{const metadata=await lookupOmdb(identity);if(metadata){enrich.run({path:file,...metadata,genres:JSON.stringify(metadata.genres)});enriched++}}catch{}
         }
+        const saved=findMedia.get(file) as {poster:string|null}|undefined
+        latest={title:identity.title,kind:identity.kind,poster:saved?.poster||undefined}
       }finally{
         current++
-        const saved=findMedia.get(file) as {poster:string|null}|undefined
-        onProgress?.({phase:'scanning',current,total:files.length,percent:files.length?Math.round(current/files.length*100):100,found:files.length,enriched,latest:{title:identity.title,kind:identity.kind,poster:saved?.poster||undefined}})
+        onProgress?.({phase:'scanning',current,total:files.length,percent:files.length?Math.round(current/files.length*100):100,found,enriched,latest})
       }
     }
-    const result={directories,found:files.length||discovered,enriched}
-    onProgress?.({phase:'complete',current:files.length,total:files.length,percent:100,found:files.length,enriched})
+    const result={directories,found,enriched}
+    onProgress?.({phase:'complete',current:files.length,total:files.length,percent:100,found,enriched})
     return result
   }finally{if(!lockAcquired)scanRunning=false}
 }
