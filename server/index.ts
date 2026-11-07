@@ -28,7 +28,7 @@ function localIp() {
   return 'localhost'
 }
 
-function parseMedia(row: any) { return { ...row, genres: JSON.parse(row.genres || '[]'), available: Boolean(row.available) } }
+function parseMedia(row: any) { return { ...row, genres: JSON.parse(row.genres || '[]'), available: Boolean(row.available), completed: Boolean(row.completed) } }
 
 app.get('/api/health', (_req, res) => res.json({ ok: true, version: '0.1.0', ip: localIp() }))
 app.get('/api/remote/events', (req, res) => {
@@ -41,12 +41,12 @@ app.get('/api/remote/events', (req, res) => {
 })
 app.get('/api/profiles', (_req, res) => res.json(db.prepare('SELECT * FROM profiles ORDER BY id').all()))
 app.post('/api/profiles', (req, res) => {
-  const data = z.object({ name: z.string().min(1).max(30), avatar: z.string().default('bot'), color: z.string().default('#f21d45'), max_age: z.number().int().min(3).max(18).default(18) }).parse(req.body)
+  const data = z.object({ name: z.string().trim().min(1).max(12), avatar: z.string().default('bot'), color: z.string().default('#f21d45'), max_age: z.number().int().min(3).max(18).default(18) }).parse(req.body)
   const result = db.prepare('INSERT INTO profiles(name,avatar,color,max_age) VALUES(@name,@avatar,@color,@max_age)').run(data)
   res.status(201).json({ id: result.lastInsertRowid, ...data })
 })
 app.put('/api/profiles/:id', (req, res) => {
-  const data = z.object({ name: z.string().min(1).max(30), avatar: z.string().default('bot'), color: z.string().default('#f21d45'), max_age: z.number().int().min(3).max(18).default(18) }).parse(req.body)
+  const data = z.object({ name: z.string().trim().min(1).max(12), avatar: z.string().default('bot'), color: z.string().default('#f21d45'), max_age: z.number().int().min(3).max(18).default(18) }).parse(req.body)
   db.prepare('UPDATE profiles SET name=@name,avatar=@avatar,color=@color,max_age=@max_age WHERE id=@id').run({ ...data, id: req.params.id })
   res.json({ id: Number(req.params.id), ...data })
 })
@@ -69,10 +69,38 @@ app.put('/api/profiles/:id/rating', (req, res) => {
 
 app.get('/api/media', (req, res) => {
   const kind = req.query.kind
-  const rows = kind === 'movie' || kind === 'series'
-    ? db.prepare('SELECT * FROM media WHERE available=1 AND kind=? ORDER BY added_at DESC').all(kind)
-    : db.prepare('SELECT * FROM media WHERE available=1 ORDER BY added_at DESC').all()
+  const profileId = Number(req.query.profileId)
+  const withProgress = Number.isInteger(profileId) && profileId > 0
+  const select = withProgress
+    ? 'SELECT m.*,p.position,p.completed FROM media m LEFT JOIN progress p ON p.media_id=m.id AND p.profile_id=? WHERE m.available=1 AND m.age_rating<=COALESCE((SELECT max_age FROM profiles WHERE id=?),18)'
+    : 'SELECT m.*,NULL AS position,0 AS completed FROM media m WHERE m.available=1'
+  const params:any[] = withProgress ? [profileId,profileId] : []
+  if (kind === 'movie' || kind === 'series') params.push(kind)
+  const rows = db.prepare(`${select}${kind === 'movie' || kind === 'series' ? ' AND m.kind=?' : ''} ORDER BY m.added_at DESC`).all(...params)
   res.json(rows.map(parseMedia))
+})
+app.get('/api/series', (req, res) => {
+  const profileId=Number(req.query.profileId)
+  const profile=Number.isInteger(profileId)&&profileId>0?db.prepare('SELECT max_age FROM profiles WHERE id=?').get(profileId) as {max_age:number}|undefined:undefined
+  const rows=(profile
+    ? db.prepare(`SELECT m.*,p.position,p.completed FROM media m LEFT JOIN progress p ON p.media_id=m.id AND p.profile_id=?
+        WHERE m.available=1 AND m.kind='series' AND m.age_rating<=? ORDER BY COALESCE(m.series_title,m.title),m.season,m.episode`).all(profileId,profile.max_age)
+    : db.prepare(`SELECT m.*,NULL AS position,0 AS completed FROM media m WHERE m.available=1 AND m.kind='series'
+        ORDER BY COALESCE(m.series_title,m.title),m.season,m.episode`).all()) as any[]
+  const groups=new Map<string,any>()
+  for(const row of rows){
+    const title=row.series_title||row.title, key=title.toLocaleLowerCase('fr')
+    let group=groups.get(key)
+    if(!group){group={id:key,title,year:row.year||0,age_rating:row.age_rating||0,genres:new Set<string>(),overview:row.overview||'',poster:row.poster,backdrop:row.backdrop,seasons:new Set<number>(),episodes:[]};groups.set(key,group)}
+    const episode=parseMedia(row)
+    group.episodes.push(episode)
+    for(const genre of episode.genres)group.genres.add(genre)
+    group.seasons.add(Number(row.season)||1)
+    if(!group.overview&&row.overview)group.overview=row.overview
+    if(!group.poster&&row.poster)group.poster=row.poster
+    if(!group.backdrop&&row.backdrop)group.backdrop=row.backdrop
+  }
+  res.json([...groups.values()].map(group=>({...group,genres:[...group.genres],seasons:[...group.seasons].sort((a,b)=>a-b),episodes:group.episodes.sort((a:any,b:any)=>(a.season||1)-(b.season||1)||(a.episode||0)-(b.episode||0))})))
 })
 app.get('/api/media/:id', (req, res) => {
   const row = db.prepare('SELECT * FROM media WHERE id=?').get(req.params.id)

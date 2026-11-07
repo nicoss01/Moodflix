@@ -1,5 +1,6 @@
 export type Profile = { id:number; name:string; avatar:string; color:string; max_age:number; is_admin:number }
-export type Media = { id:number; title:string; kind:'movie'|'series'; series_title?:string; season?:number; episode?:number; year:number; duration:number; age_rating:number; genres:string[]; overview:string; poster?:string; backdrop?:string; path?:string; position?:number }
+export type Media = { id:number; title:string; kind:'movie'|'series'; series_title?:string; season?:number; episode?:number; year:number; duration:number; age_rating:number; genres:string[]; overview:string; poster?:string; backdrop?:string; path?:string; position?:number; completed?:boolean }
+export type SeriesGroup = { id:string; title:string; year:number; age_rating:number; genres:string[]; overview:string; poster?:string; backdrop?:string; seasons:number[]; episodes:Media[] }
 export type Recommendation = { id:string; title:string; kind:'movie'|'series'; year:number; genres:string[]; overview:string; poster?:string; backdrop?:string; age_rating:number; score:number; reason:string; available:boolean; localMediaId?:number; source:'library'|'tmdb' }
 export type ProfilePreferences = { profile:Profile; allGenres:string[]; selectedGenres:string[]; inferredGenres:string[]; weights:Record<string,number> }
 export type TorrentResult = { id:string; title:string; link:string; size:number; seeds:number; peers:number; published?:string; source:string }
@@ -18,7 +19,8 @@ export const api = {
   createProfile: (body:Partial<Profile>) => request<Profile>('/profiles', { method:'POST', body:JSON.stringify(body) }),
   updateProfile: (id:number, body:Partial<Profile>) => request<Profile>(`/profiles/${id}`, { method:'PUT', body:JSON.stringify(body) }),
   deleteProfile: (id:number) => request(`/profiles/${id}`, { method:'DELETE' }),
-  media: (kind?:string) => request<Media[]>(`/media${kind ? `?kind=${kind}` : ''}`),
+  media: (kind?:string,profileId?:number) => { const query=new URLSearchParams();if(kind)query.set('kind',kind);if(profileId)query.set('profileId',String(profileId));return request<Media[]>(`/media${query.size?`?${query}`:''}`) },
+  series: (profileId?:number) => request<SeriesGroup[]>(`/series${profileId?`?profileId=${profileId}`:''}`),
   mediaById: (id:string) => request<Media>(`/media/${id}`),
   scan: () => request<{found:number;directories:string[];enriched:number}>('/library/scan', { method:'POST' }),
   recommend: (body:object) => request<{ageLimit:number;items:Media[]}>('/recommendations', { method:'POST', body:JSON.stringify(body) }),
