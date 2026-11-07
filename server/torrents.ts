@@ -2,6 +2,7 @@ import { parseStringPromise } from 'xml2js'
 import { getSetting } from './db.js'
 
 let qbitCookie = ''
+let qbitCookieBase = ''
 
 export function resolveQbitBase(configured:string){
   const value=configured.trim()||'http://127.0.0.1:8080'
@@ -11,20 +12,39 @@ export function resolveQbitBase(configured:string){
   return value.replace(/\/$/,'')
 }
 
+export function buildQbitHeaders(base:string,cookie='',initial?:HeadersInit){
+  const headers=new Headers(initial)
+  // qBittorrent compare cet en-tête à Host pour protéger les requêtes POST contre les CSRF.
+  headers.set('Referer',`${base}/`)
+  if(cookie)headers.set('Cookie',cookie)
+  return headers
+}
+
+async function loginQbit(base:string){
+  const body = new URLSearchParams({ username: getSetting('QBITTORRENT_USER','').trim() || 'admin', password: getSetting('QBITTORRENT_PASSWORD','') })
+  const login = await fetch(`${base}/api/v2/auth/login`, { method:'POST', body, headers:buildQbitHeaders(base) })
+  const result=(await login.text()).trim()
+  if(login.status===403)throw new Error('qBittorrent a temporairement bloqué les connexions après plusieurs échecs. Redémarrez qBittorrent puis vérifiez les identifiants dans les paramètres.')
+  const cookie=login.headers.get('set-cookie')?.split(';')[0]||''
+  if(!login.ok||result!=='Ok.'||!cookie)throw new Error('Connexion qBittorrent refusée. Vérifiez le nom d’utilisateur et le mot de passe WebUI dans les paramètres MoodFlix.')
+  qbitCookie=cookie
+  qbitCookieBase=base
+}
+
 async function qbit(path: string, init: RequestInit = {}) {
   const configuredBase = getSetting('QBITTORRENT_URL', '').trim()
   const base = resolveQbitBase(configuredBase)
-  const headers = new Headers(init.headers)
-  if (qbitCookie) headers.set('Cookie', qbitCookie)
+  if(qbitCookieBase&&qbitCookieBase!==base){qbitCookie='';qbitCookieBase=''}
+  let headers = buildQbitHeaders(base,qbitCookie,init.headers)
   let response = await fetch(`${base}${path}`, { ...init, headers })
-  if (response.status === 403 || response.status === 401 || (!qbitCookie && path !== '/api/v2/auth/login')) {
-    const body = new URLSearchParams({ username: getSetting('QBITTORRENT_USER','').trim() || 'admin', password: getSetting('QBITTORRENT_PASSWORD','') })
-    const login = await fetch(`${base}/api/v2/auth/login`, { method: 'POST', body })
-    qbitCookie = login.headers.get('set-cookie')?.split(';')[0] || ''
-    headers.set('Cookie', qbitCookie)
+  if (response.status === 403 || response.status === 401) {
+    qbitCookie='';qbitCookieBase=''
+    await loginQbit(base)
+    headers=buildQbitHeaders(base,qbitCookie,init.headers)
     response = await fetch(`${base}${path}`, { ...init, headers })
   }
-  if (!response.ok) throw new Error(`qBittorrent: ${response.status}`)
+  if(response.status===403)throw new Error('qBittorrent refuse la requête (403). Vérifiez que l’adresse WebUI configurée correspond exactement à celle de qBittorrent.')
+  if (!response.ok) throw new Error(`qBittorrent a répondu avec l’erreur HTTP ${response.status}.`)
   return response
 }
 

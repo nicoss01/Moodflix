@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildTorznabUrl, resolveQbitBase } from './torrents.js'
+import { buildQbitHeaders, buildTorznabUrl, resolveQbitBase } from './torrents.js'
 
 describe('buildTorznabUrl', () => {
   it('conserve les paramètres de l’indexeur et ajoute la clé Torznab', () => {
@@ -22,5 +22,10 @@ describe('resolveQbitBase',()=>{
   })
   it('normalise une adresse configurée sans produire de chemin relatif',()=>{
     expect(resolveQbitBase(' http://192.168.1.20:8080/ ')).toBe('http://192.168.1.20:8080')
+  })
+  it('ajoute le Referer exact requis par la protection CSRF qBittorrent',()=>{
+    const headers=buildQbitHeaders('http://127.0.0.1:8080','SID=abc')
+    expect(headers.get('Referer')).toBe('http://127.0.0.1:8080/')
+    expect(headers.get('Cookie')).toBe('SID=abc')
   })
 })
