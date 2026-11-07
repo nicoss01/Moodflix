@@ -87,10 +87,15 @@ fi
 sudo -v || fail "autorisation administrateur refusée"
 
 install_packages() {
+  local optional_packages=()
   sudo env DEBIAN_FRONTEND=noninteractive apt-get update
+  # ydotool est présent sur Raspberry Pi OS/Bookworm et dans les backports
+  # Debian 13. Son absence ne doit pas rendre l'installation impossible.
+  if apt-cache show ydotool >/dev/null 2>&1; then optional_packages+=(ydotool); fi
   sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     ffmpeg chromium cec-utils curl qbittorrent-nox build-essential python3 \
-    cage seatd fonts-dejavu-core udisks2 udiskie dbus-x11 unclutter-xfixes x11-apps
+    cage seatd fonts-dejavu-core udisks2 udiskie dbus-x11 unclutter-xfixes x11-apps \
+    "${optional_packages[@]}"
 }
 
 install_node() {
@@ -147,9 +152,10 @@ configure_services() {
   sudo chmod 0440 /etc/sudoers.d/moodflix-reboot
   sudo visudo -cf /etc/sudoers.d/moodflix-reboot
   # Cage affiche un curseur dès qu'un périphérique est classé comme pointeur.
-  # Les contrôleurs HDMI du Raspberry Pi déclarent parfois cette capacité à tort.
+  # Les contrôleurs HDMI-CEC du Raspberry Pi déclarent parfois cette capacité
+  # à tort : on retire uniquement leur type pointeur, sans toucher au clavier CEC.
   sudo tee /etc/udev/rules.d/99-moodflix-no-pointer.rules >/dev/null <<'EOF'
-ACTION!="remove", KERNEL=="event[0-9]*", ENV{ID_INPUT_MOUSE}="", ENV{ID_INPUT_TOUCHPAD}="", ENV{ID_INPUT_POINTINGSTICK}=""
+ACTION!="remove", KERNEL=="event[0-9]*", ATTRS{name}=="vc4-hdmi-*", ENV{ID_INPUT_MOUSE}="0", ENV{ID_INPUT_TOUCHPAD}="0", ENV{ID_INPUT_POINTINGSTICK}="0"
 EOF
   sudo udevadm control --reload-rules
   sudo udevadm trigger --subsystem-match=input

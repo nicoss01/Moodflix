@@ -1,4 +1,6 @@
 import { parseStringPromise } from 'xml2js'
+import fs from 'node:fs'
+import path from 'node:path'
 import { getSetting } from './db.js'
 
 let qbitCookie = ''
@@ -7,6 +9,32 @@ let torrentCache:any[]=[]
 let torrentCacheAt=0
 let torrentRequest:Promise<any[]>|null=null
 const TORRENT_CACHE_MS=2500
+const VIDEO_EXTENSIONS=new Set(['.mp4','.mkv','.avi','.mov','.m4v','.webm'])
+
+function invalidateTorrentCache(){torrentCache=[];torrentCacheAt=0}
+
+export function torrentContentExists(contentPath?:string){
+  if(!contentPath)return false
+  try{
+    const first=fs.statSync(contentPath)
+    if(first.isFile())return first.size>0&&VIDEO_EXTENSIONS.has(path.extname(contentPath).toLowerCase())
+    if(!first.isDirectory())return false
+    const pending=[contentPath]
+    let inspected=0
+    while(pending.length&&inspected<5000){
+      const directory=pending.pop()!
+      for(const entry of fs.readdirSync(directory,{withFileTypes:true})){
+        inspected++
+        if(entry.isDirectory())pending.push(path.join(directory,entry.name))
+        else if(entry.isFile()&&VIDEO_EXTENSIONS.has(path.extname(entry.name).toLowerCase())){
+          try{if(fs.statSync(path.join(directory,entry.name)).size>0)return true}catch{}
+        }
+        if(inspected>=5000)break
+      }
+    }
+  }catch{}
+  return false
+}
 
 export function resolveQbitBase(configured:string){
   const value=configured.trim()||'http://127.0.0.1:8080'
@@ -124,6 +152,21 @@ export async function addTorrent(url: string) {
   const duplicate=expectedHash&&before.find(item=>String(item.hash).toLowerCase()===expectedHash)
   if(duplicate)return{ok:true,torrent:duplicate,duplicate:true}
   throw new Error('qBittorrent a accepté la demande, mais le torrent n’apparaît pas dans sa liste. Vérifiez le journal qBittorrent et le lien de téléchargement fourni par le moteur.')
+}
+
+export async function deleteTorrent(hash:string){
+  const body=new URLSearchParams({hashes:hash,deleteFiles:'false'})
+  await qbit('/api/v2/torrents/delete',{method:'POST',body})
+  invalidateTorrentCache()
+  return{ok:true}
+}
+
+export async function redownloadTorrent(hash:string){
+  const hashes=new URLSearchParams({hashes:hash})
+  await qbit('/api/v2/torrents/recheck',{method:'POST',body:hashes})
+  await qbit('/api/v2/torrents/setForceStart',{method:'POST',body:new URLSearchParams({hashes:hash,value:'true'})})
+  invalidateTorrentCache()
+  return{ok:true}
 }
 
 export async function testQbit(baseValue?:string,usernameValue?:string,passwordValue?:string){

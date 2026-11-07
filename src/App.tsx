@@ -1,8 +1,8 @@
 import {startTransition, useEffect, useMemo, useRef, useState} from 'react'
 import {createPortal} from 'react-dom'
 import {Routes, Route, useLocation, useNavigate, NavLink, Navigate} from 'react-router-dom'
-import {ArrowLeft, Captions, Check, ChevronDown, ChevronLeft, ChevronRight, CircleUserRound, Dice5, Download, Eye, EyeOff, Film, Gamepad2, Gauge, GitCommitHorizontal, HardDrive, Headphones, Home, Info, Keyboard, Languages, ListVideo, LoaderCircle, MonitorCog, Pause, PawPrint, Play, Plus, Power, QrCode, RefreshCw, Rocket, Search, Send, Settings, ShieldCheck, SkipBack, SkipForward, Sparkles, Star, Subtitles, Trash2, Tv, Upload, UserPlus, UserRound, Volume2, VolumeX, X} from 'lucide-react'
-import {api, type DriveInfo, type DriveScan, type EpisodeLink, type Media, type OmdbTestResult, type Profile, type ProfilePreferences, type QbitTestResult, type Recommendation, type SeriesGroup, type TorrentResult, type TorznabTestResult, type UpdateStatus} from './api'
+import {ArrowLeft, Captions, Check, ChevronDown, ChevronLeft, ChevronRight, CircleUserRound, Dice5, Download, Eye, EyeOff, Film, Gamepad2, Gauge, GitCommitHorizontal, HardDrive, Headphones, Home, Info, Keyboard, Languages, ListVideo, LoaderCircle, MonitorCog, Pause, PawPrint, Play, Plus, Power, QrCode, RefreshCw, Rocket, Search, Send, Settings, ShieldCheck, SkipBack, SkipForward, Sparkles, Star, Subtitles, Trash2, TriangleAlert, Tv, Upload, UserPlus, UserRound, Volume2, VolumeX, X} from 'lucide-react'
+import {api, type DriveInfo, type DriveScan, type EpisodeLink, type Media, type OmdbTestResult, type Profile, type ProfilePreferences, type QbitTestResult, type Recommendation, type SeriesGroup, type TorrentJob, type TorrentResult, type TorznabTestResult, type UpdateStatus} from './api'
 
 const art: Record<string, string> = {
   'gradient:sand': 'linear-gradient(135deg,#bc5b20,#321509 62%,#090d13)',
@@ -81,13 +81,14 @@ function useRemoteNavigation() {
       }
       const readOnlyTrigger = target instanceof HTMLInputElement && target.readOnly && (event.key === 'Enter' || event.key === ' ')
       const editableText = (target instanceof HTMLInputElement && !target.readOnly) || target instanceof HTMLTextAreaElement
+      const selectControl = target instanceof HTMLSelectElement ? target : null
       const remoteKey = Boolean((event as KeyboardEvent & {moodflixRemote?: boolean}).moodflixRemote)
-      if (remoteKey && editableText && event.key === 'Backspace') {
+      if (remoteKey && (editableText || selectControl) && event.key === 'Backspace') {
         event.preventDefault()
         const scope = modal || document
         const source = target.getBoundingClientRect()
         const candidate = [...scope.querySelectorAll<HTMLElement>('[data-focus]:not([disabled])')]
-          .filter((node) => node !== target && node.offsetParent !== null && !((node instanceof HTMLInputElement && !node.readOnly) || node instanceof HTMLTextAreaElement))
+          .filter((node) => node !== target && node.offsetParent !== null && !((node instanceof HTMLInputElement && !node.readOnly) || node instanceof HTMLTextAreaElement || node instanceof HTMLSelectElement))
           .map((node) => {
             const rect = node.getBoundingClientRect()
             return {node, distance: Math.hypot(rect.left + rect.width / 2 - (source.left + source.width / 2), rect.top + rect.height / 2 - (source.top + source.height / 2))}
@@ -95,6 +96,16 @@ function useRemoteNavigation() {
           .sort((a, b) => a.distance - b.distance)[0]?.node
         target.blur()
         candidate?.focus()
+        return
+      }
+      if (remoteKey && selectControl && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
+        event.preventDefault()
+        const direction = event.key === 'ArrowUp' ? -1 : 1
+        const nextIndex = Math.max(0, Math.min(selectControl.options.length - 1, selectControl.selectedIndex + direction))
+        if (nextIndex !== selectControl.selectedIndex) {
+          selectControl.selectedIndex = nextIndex
+          selectControl.dispatchEvent(new Event('change', {bubbles: true}))
+        }
         return
       }
       if (event.key === 'Escape' || (event.key === 'Backspace' && !editableText)) {
@@ -107,8 +118,8 @@ function useRemoteNavigation() {
         else navigate(-1)
         return
       }
-      const remoteTextArrow = remoteKey && editableText && ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)
-      if (['INPUT', 'TEXTAREA', 'SELECT', 'VIDEO'].includes(target?.tagName) && !readOnlyTrigger && !remoteTextArrow) return
+      const remoteControlArrow = remoteKey && (editableText || selectControl) && ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)
+      if (['INPUT', 'TEXTAREA', 'SELECT', 'VIDEO'].includes(target?.tagName) && !readOnlyTrigger && !remoteControlArrow) return
       if (event.key === 'Enter' || event.key === ' ') {
         const active = document.activeElement as HTMLElement
         if (active?.matches('button,a,[role="button"],input[readonly]')) {
@@ -2616,7 +2627,7 @@ function Torrents() {
     [kind, setKind] = useState<TorrentKind>(initialKind),
     [results, setResults] = useState<TorrentResult[]>([]),
     [page, setPage] = useState(1),
-    [jobs, setJobs] = useState<any[]>([]),
+    [jobs, setJobs] = useState<TorrentJob[]>([]),
     [loading, setLoading] = useState(false),
     [error, setError] = useState(''),
     [keyboard, setKeyboard] = useState(false),
@@ -2625,7 +2636,8 @@ function Torrents() {
       type: 'success' | 'error'
       text: string
     } | null>(null),
-    [added, setAdded] = useState<Set<string>>(new Set())
+    [added, setAdded] = useState<Set<string>>(new Set()),
+    [torrentAction, setTorrentAction] = useState('')
   const resultsRef = useRef<HTMLDivElement>(null),
     noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const pageSize = 20,
@@ -2659,7 +2671,7 @@ function Torrents() {
       refreshing = false,
       lastInteraction = performance.now(),
       timer: ReturnType<typeof setInterval>
-    const signature=(items:any[])=>items.map(item=>`${item.hash}:${item.progress}:${item.state}:${item.num_seeds}:${item.num_leechs}:${item.eta}:${item.dlspeed}:${item.upspeed}`).join('|')
+    const signature=(items:TorrentJob[])=>items.map(item=>`${item.hash}:${item.progress}:${item.state}:${item.num_seeds}:${item.num_leechs}:${item.eta}:${item.dlspeed}:${item.upspeed}:${item.localAvailable}`).join('|')
     const refresh = async () => {
       if(refreshing||document.hidden||performance.now()-lastInteraction<1500)return
       refreshing=true
@@ -2745,6 +2757,25 @@ function Torrents() {
         type: 'error',
         text: e.message || 'Impossible d’ajouter ce torrent.',
       })
+    }
+    if (noticeTimer.current) clearTimeout(noticeTimer.current)
+    noticeTimer.current = setTimeout(() => setNotice(null), 7000)
+  }
+  const manageTorrent = async (job: TorrentJob, action: 'delete' | 'redownload') => {
+    const actionKey = `${action}:${job.hash}`
+    setTorrentAction(actionKey)
+    try {
+      if (action === 'delete') await api.deleteTorrent(job.hash)
+      else await api.redownloadTorrent(job.hash)
+      setJobs(await api.torrents())
+      setNotice({
+        type: 'success',
+        text: action === 'delete' ? `« ${job.name} » a été retiré de qBittorrent. Les fichiers locaux sont conservés.` : `Vérification de « ${job.name} » lancée. Les morceaux manquants vont être retéléchargés.`,
+      })
+    } catch (e: any) {
+      setNotice({type: 'error', text: e.message || `Impossible de ${action === 'delete' ? 'supprimer' : 'retélécharger'} ce torrent.`})
+    } finally {
+      setTorrentAction('')
     }
     if (noticeTimer.current) clearTimeout(noticeTimer.current)
     noticeTimer.current = setTimeout(() => setNotice(null), 7000)
@@ -2838,7 +2869,7 @@ function Torrents() {
             )}
           </>
         ) : (
-          <TorrentJobs jobs={jobs.filter((j) => (tab === 'done' ? Number(j.progress) >= 0.999999 : Number(j.progress) < 0.999999))} done={tab === 'done'} />
+          <TorrentJobs jobs={jobs.filter((j) => (tab === 'done' ? Number(j.progress) >= 0.999999 : Number(j.progress) < 0.999999))} done={tab === 'done'} busy={torrentAction} onDelete={(job) => manageTorrent(job, 'delete')} onRedownload={(job) => manageTorrent(job, 'redownload')} />
         )}
       </div>
       {notice && (
@@ -2863,26 +2894,36 @@ function Torrents() {
     </section>
   )
 }
-function TorrentJobs({jobs, done}: {jobs: any[]; done: boolean}) {
-  const leechers=(job:any)=>Number(job.num_leechs)||0
+function TorrentJobs({jobs, done, busy, onDelete, onRedownload}: {jobs: TorrentJob[]; done: boolean; busy: string; onDelete: (job: TorrentJob) => void; onRedownload: (job: TorrentJob) => void}) {
+  const leechers=(job:TorrentJob)=>Number(job.num_leechs)||0
   return (
     <>
       <span className="eyebrow">CLIENT QBITTORRENT</span>
       <h1>{done ? 'Terminés & en partage' : 'Téléchargements en cours'}</h1>
       {jobs.length ? (
         jobs.map((j) => (
-          <div className="job" key={j.hash}>
+          <div className={`job ${done ? 'done' : ''} ${done && !j.localAvailable ? 'missing' : ''}`} data-focus={!done || undefined} tabIndex={!done ? -1 : undefined} key={j.hash}>
             <div>
               <b>{j.name}</b>
               <small>
                 {done ? `${leechers(j)} leecher${leechers(j)>1?'s':''}` : `${j.num_seeds} seed · ${j.eta < 8640000 ? `${Math.ceil(j.eta / 60)} min` : '—'}`}
               </small>
+              {done && (j.localAvailable ? <span className="local-file-status available"><Check /> Fichier local disponible</span> : <span className="local-file-status warning"><TriangleAlert /> Fichier local introuvable</span>)}
             </div>
             <div className="job-progress">
               <i style={{width: `${j.progress * 100}%`}} />
             </div>
             <strong>{Math.round(j.progress * 100)} %</strong>
-            <span>{done ? <Upload /> : <Download />}</span>
+            {done ? (
+              <div className="job-actions">
+                <button data-focus disabled={Boolean(busy)} onClick={() => onRedownload(j)}>
+                  {busy === `redownload:${j.hash}` ? <LoaderCircle className="spin" /> : <RefreshCw />} Retélécharger
+                </button>
+                <button data-focus disabled={Boolean(busy)} className="danger" onClick={() => onDelete(j)}>
+                  {busy === `delete:${j.hash}` ? <LoaderCircle className="spin" /> : <Trash2 />} Supprimer
+                </button>
+              </div>
+            ) : <span><Download /></span>}
           </div>
         ))
       ) : (

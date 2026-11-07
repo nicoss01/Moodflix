@@ -11,7 +11,7 @@ import QRCode from 'qrcode'
 import { z } from 'zod'
 import { db, getSetting, setSetting } from './db.js'
 import { detectDrives, isLibraryScanRunning, scanDrive, scanLibraries, type ScanProgress } from './scanner.js'
-import { addTorrent, listTorrents, searchTorznab, testQbit, testTorznab } from './torrents.js'
+import { addTorrent, deleteTorrent, listTorrents, redownloadTorrent, searchTorznab, testQbit, testTorznab, torrentContentExists } from './torrents.js'
 import { startCompletedTorrentMonitor } from './torrent-importer.js'
 import { beginPlaybackStream, isPlaybackActive, touchPlayback } from './playback-state.js'
 import { isUiIdle, touchUiActivity } from './activity-state.js'
@@ -287,9 +287,11 @@ app.get('/api/catalog/related', async (req,res,next)=>{
   }catch(e){next(e)}
 })
 
-app.get('/api/torrents', async (_req, res, next) => { try { const items=await listTorrents() as any[];res.json(items.map(item=>({hash:item.hash,name:item.name,progress:item.progress,state:item.state,num_seeds:item.num_seeds,num_leechs:item.num_leechs,eta:item.eta,dlspeed:item.dlspeed,upspeed:item.upspeed}))) } catch (e) { next(e) } })
+app.get('/api/torrents', async (_req, res, next) => { try { const items=await listTorrents() as any[];res.json(items.map(item=>{const contentPath=item.content_path||item.save_path&&path.join(item.save_path,item.name)||'';return{hash:item.hash,name:item.name,progress:item.progress,state:item.state,num_seeds:item.num_seeds,num_leechs:item.num_leechs,eta:item.eta,dlspeed:item.dlspeed,upspeed:item.upspeed,contentPath,localAvailable:torrentContentExists(contentPath)}})) } catch (e) { next(e) } })
 app.get('/api/torrents/search', async (req, res, next) => { try { res.json(await searchTorznab(String(req.query.q || ''), String(req.query.kind || 'all'))) } catch (e) { next(e) } })
 app.post('/api/torrents', async (req, res, next) => { try { const { url } = z.object({ url: z.string().min(5) }).parse(req.body); res.status(201).json(await addTorrent(url)) } catch (e) { next(e) } })
+app.delete('/api/torrents/:hash',async(req,res,next)=>{try{const hash=z.string().regex(/^[a-f0-9]{40,64}$/i).parse(req.params.hash);await deleteTorrent(hash);db.prepare('DELETE FROM torrent_imports WHERE hash=?').run(hash);res.json({ok:true})}catch(e){next(e)}})
+app.post('/api/torrents/:hash/redownload',async(req,res,next)=>{try{const hash=z.string().regex(/^[a-f0-9]{40,64}$/i).parse(req.params.hash);res.json(await redownloadTorrent(hash))}catch(e){next(e)}})
 app.get('/api/torrents/search/qr', async (_req, res) => {
   const url = `http://${localIp()}:${port}/torrent-search`
   res.json({ url, qr: await QRCode.toDataURL(url, { margin: 1, width: 320, color: { dark: '#07111f', light: '#ffffff' } }) })

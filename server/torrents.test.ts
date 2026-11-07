@@ -1,5 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { assertQbitAddResponse, buildQbitHeaders, buildTorznabUrl, extractTorrentLink, resolveQbitBase, testQbit } from './torrents.js'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import { assertQbitAddResponse, buildQbitHeaders, buildTorznabUrl, extractTorrentLink, resolveQbitBase, testQbit, torrentContentExists } from './torrents.js'
 
 afterEach(()=>vi.restoreAllMocks())
 
@@ -48,6 +51,20 @@ describe('assertQbitAddResponse',()=>{
   })
   it('refuse le faux succès HTTP 200 de qBittorrent',()=>{
     expect(()=>assertQbitAddResponse('Fails.')).toThrow(/refusé le torrent/)
+  })
+})
+
+describe('torrentContentExists',()=>{
+  it('distingue un contenu vidéo local présent d’un chemin supprimé',()=>{
+    const directory=fs.mkdtempSync(path.join(os.tmpdir(),'moodflix-torrent-'))
+    try{
+      const video=path.join(directory,'Film.mkv')
+      fs.writeFileSync(video,'video')
+      expect(torrentContentExists(directory)).toBe(true)
+      fs.unlinkSync(video)
+      expect(torrentContentExists(directory)).toBe(false)
+      expect(torrentContentExists(path.join(directory,'absent.mkv'))).toBe(false)
+    }finally{fs.rmSync(directory,{recursive:true,force:true})}
   })
 })
 

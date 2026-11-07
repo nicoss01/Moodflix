@@ -60,4 +60,19 @@ if [[ -n "${WAYLAND_DISPLAY:-}" ]]; then
   CHROMIUM_FLAGS+=(--ozone-platform=wayland --enable-features=UseOzonePlatform)
 fi
 
+# Renfort Wayland/Cage : après le lancement de Chromium, pousse le curseur
+# fantôme hors écran si ydotool est disponible. La règle udev ciblée et le
+# thème transparent restent actifs même lorsque ce paquet est absent.
+if [[ -n "${WAYLAND_DISPLAY:-}" ]] && command -v ydotoold >/dev/null 2>&1 && command -v ydotool >/dev/null 2>&1; then
+  export YDOTOOL_SOCKET="${XDG_RUNTIME_DIR:-/tmp}/moodflix-ydotool.sock"
+  ydotoold --socket-path="$YDOTOOL_SOCKET" --socket-perm=0600 &
+  (
+    sleep 5
+    for _ in $(seq 1 20); do
+      ydotool mousemove 4000 4000 >/dev/null 2>&1 && exit 0
+      sleep 0.25
+    done
+  ) &
+fi
+
 exec "$BROWSER_BIN" "${CHROMIUM_FLAGS[@]}" "$APP_URL"
