@@ -2870,6 +2870,7 @@ function Torrents() {
   )
 }
 function TorrentJobs({jobs, done}: {jobs: any[]; done: boolean}) {
+  const leechers=(job:any)=>Number(job.num_leechs)||0
   return (
     <>
       <span className="eyebrow">CLIENT QBITTORRENT</span>
@@ -2880,7 +2881,7 @@ function TorrentJobs({jobs, done}: {jobs: any[]; done: boolean}) {
             <div>
               <b>{j.name}</b>
               <small>
-                {j.num_seeds} seed · {j.eta < 8640000 ? `${Math.ceil(j.eta / 60)} min` : '—'}
+                {done ? `${leechers(j)} leecher${leechers(j)>1?'s':''}` : `${j.num_seeds} seed · ${j.eta < 8640000 ? `${Math.ceil(j.eta / 60)} min` : '—'}`}
               </small>
             </div>
             <div className="job-progress">
