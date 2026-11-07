@@ -67,6 +67,11 @@ db.exec(`
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
   );
+  CREATE TABLE IF NOT EXISTS torrent_imports (
+    hash TEXT PRIMARY KEY,
+    content_path TEXT NOT NULL,
+    imported_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );
 `)
 
 for(const migration of [

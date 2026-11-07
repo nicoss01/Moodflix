@@ -30,6 +30,8 @@ export const api = {
   deleteMediaFile: (id:number) => request<{ok:boolean}>(`/media/${id}/file`, { method:'DELETE', body:JSON.stringify({confirm:true}) }),
   setSeriesHidden: (title:string,hidden=true) => request<{ok:boolean;hidden:boolean;count:number}>('/series/visibility', { method:'PUT', body:JSON.stringify({title,hidden}) }),
   deleteSeriesFiles: (title:string) => request<{ok:boolean;count:number}>('/series/files', { method:'DELETE', body:JSON.stringify({title,confirm:true}) }),
+  setSeasonHidden: (title:string,season:number,hidden=true) => request<{ok:boolean;hidden:boolean;count:number}>('/series/season/visibility', { method:'PUT', body:JSON.stringify({title,season,hidden}) }),
+  deleteSeasonFiles: (title:string,season:number) => request<{ok:boolean;count:number}>('/series/season/files', { method:'DELETE', body:JSON.stringify({title,season,confirm:true}) }),
   episodeNeighbors: (id:string) => request<{previous:EpisodeLink|null;next:EpisodeLink|null}>(`/media/${id}/neighbors`),
   scan: () => request<{found:number;directories:string[];enriched:number}>('/library/scan', { method:'POST' }),
   drives: () => request<DriveInfo[]>('/library/drives'),

@@ -1253,10 +1253,14 @@ function LocalMediaCard({item, id, className = 'media-card', style, children, on
   )
 }
 
-function MediaContextMenu({item, seriesTitle, onClose}: {item: Media; seriesTitle?: string; onClose: () => void}) {
-  const [confirmDelete, setConfirmDelete] = useState(false),
+type MediaAction = 'hide' | 'delete'
+function MediaContextMenu({item, seriesTitle, season, initialAction, onClose, onSuccess}: {item: Media; seriesTitle?: string; season?: number; initialAction?: MediaAction; onClose: () => void; onSuccess?: () => void}) {
+  const [confirmation, setConfirmation] = useState<MediaAction | null>(initialAction || null),
     [busy, setBusy] = useState(false),
     [error, setError] = useState('')
+  const targetLabel = season !== undefined ? `la saison ${season}` : seriesTitle ? 'cette série' : item.kind === 'series' ? 'cet épisode' : 'ce film'
+  const fileLabel = season !== undefined ? 'Les épisodes de cette saison' : seriesTitle ? 'Tous les épisodes' : 'Le fichier vidéo'
+  const filesPlural = season !== undefined || Boolean(seriesTitle)
   useEffect(() => {
     const close = () => onClose()
     window.addEventListener('moodflix:close-overlay', close)
@@ -1266,10 +1270,12 @@ function MediaContextMenu({item, seriesTitle, onClose}: {item: Media; seriesTitl
     setBusy(true)
     setError('')
     try {
-      if (seriesTitle) await api.setSeriesHidden(seriesTitle)
+      if (seriesTitle && season !== undefined) await api.setSeasonHidden(seriesTitle, season)
+      else if (seriesTitle) await api.setSeriesHidden(seriesTitle)
       else await api.setMediaHidden(item.id)
       onClose()
-      location.reload()
+      if (onSuccess) onSuccess()
+      else location.reload()
     } catch (e: any) {
       setError(e.message)
       setBusy(false)
@@ -1279,10 +1285,12 @@ function MediaContextMenu({item, seriesTitle, onClose}: {item: Media; seriesTitl
     setBusy(true)
     setError('')
     try {
-      if (seriesTitle) await api.deleteSeriesFiles(seriesTitle)
+      if (seriesTitle && season !== undefined) await api.deleteSeasonFiles(seriesTitle, season)
+      else if (seriesTitle) await api.deleteSeriesFiles(seriesTitle)
       else await api.deleteMediaFile(item.id)
       onClose()
-      location.reload()
+      if (onSuccess) onSuccess()
+      else location.reload()
     } catch (e: any) {
       setError(e.message)
       setBusy(false)
@@ -1296,23 +1304,21 @@ function MediaContextMenu({item, seriesTitle, onClose}: {item: Media; seriesTitl
         </button>
         <span className="eyebrow">MÉDIA LOCAL</span>
         <h2>{item.title}</h2>
-        {confirmDelete ? (
+        {confirmation ? (
           <>
             <div className="delete-warning">
-              <Trash2 />
+              {confirmation === 'delete' ? <Trash2 /> : <EyeOff />}
               <p>
-                <b>Supprimer définitivement {seriesTitle ? 'cette série' : 'ce fichier'} ?</b>
-                <small>
-                  {seriesTitle ? 'Tous les épisodes' : 'Le fichier vidéo'} {seriesTitle ? 'seront effacés' : 'sera effacé'} du disque. Cette action est irréversible.
-                </small>
+                <b>{confirmation === 'delete' ? 'Supprimer définitivement' : 'Masquer de la médiathèque'} {targetLabel} ?</b>
+                <small>{confirmation === 'delete' ? `${fileLabel} ${filesPlural ? 'seront effacés' : 'sera effacé'} du disque. Cette action est irréversible.` : `${fileLabel} ${filesPlural ? 'resteront' : 'restera'} sur le disque, mais ${targetLabel} ne sera plus visible dans MoodFlix.`}</small>
               </p>
             </div>
             <div className="media-context-actions">
-              <button data-focus disabled={busy} onClick={() => setConfirmDelete(false)}>
+              <button data-focus disabled={busy} onClick={() => initialAction ? onClose() : setConfirmation(null)}>
                 <ArrowLeft /> Annuler
               </button>
-              <button data-focus autoFocus disabled={busy} className="danger" onClick={remove}>
-                {busy ? <LoaderCircle className="spin" /> : <Trash2 />} Supprimer définitivement
+              <button data-focus autoFocus disabled={busy} className={confirmation === 'delete' ? 'danger' : ''} onClick={confirmation === 'delete' ? remove : hide}>
+                {busy ? <LoaderCircle className="spin" /> : confirmation === 'delete' ? <Trash2 /> : <EyeOff />} Confirmer
               </button>
             </div>
           </>
@@ -1320,14 +1326,14 @@ function MediaContextMenu({item, seriesTitle, onClose}: {item: Media; seriesTitl
           <>
             <p>Que souhaitez-vous faire de ce média ?</p>
             <div className="media-context-actions vertical">
-              <button data-focus autoFocus disabled={busy} onClick={hide}>
+              <button data-focus autoFocus disabled={busy} onClick={() => setConfirmation('hide')}>
                 <EyeOff />{' '}
                 <span>
                   <b>Masquer de la médiathèque</b>
                   <small>{seriesTitle ? 'Les épisodes restent intacts' : 'Le fichier reste intact'} sur le disque.</small>
                 </span>
               </button>
-              <button data-focus disabled={busy} className="danger" onClick={() => setConfirmDelete(true)}>
+              <button data-focus disabled={busy} className="danger" onClick={() => setConfirmation('delete')}>
                 <Trash2 />{' '}
                 <span>
                   <b>Supprimer définitivement</b>
@@ -1923,6 +1929,7 @@ function MediaDetailPage({profile}: {profile: Profile | null}) {
   const [item, setItem] = useState<Media | null>(null),
     [related, setRelated] = useState<Recommendation[]>([]),
     [selected, setSelected] = useState<Recommendation | null>(null),
+    [action, setAction] = useState<MediaAction | null>(null),
     [error, setError] = useState('')
   useEffect(() => {
     let active = true
@@ -1974,11 +1981,18 @@ function MediaDetailPage({profile}: {profile: Profile | null}) {
             <button data-focus className="primary" onClick={() => nav(`/watch/${item.id}`)}>
               <Play /> Regarder
             </button>
+            <button data-focus onClick={() => setAction('hide')}>
+              <EyeOff /> Masquer
+            </button>
+            <button data-focus className="danger" onClick={() => setAction('delete')}>
+              <Trash2 /> Supprimer
+            </button>
           </div>
         </div>
       </header>
       <div className="local-detail-body">{related.length > 0 && <RecommendationRow title="Vous aimerez aussi" icon={<Sparkles />} items={related} onSelect={setSelected} />}</div>
       {selected && <RecommendationDetails item={selected} profileId={profile?.id} onClose={() => setSelected(null)} />}
+      {action && <MediaContextMenu item={item} initialAction={action} onClose={() => setAction(null)} onSuccess={() => nav('/movies', {replace: true})} />}
     </section>
   )
 }
@@ -1992,6 +2006,7 @@ function SeriesDetailPage({profile}: {profile: Profile | null}) {
     [related, setRelated] = useState<Recommendation[]>([]),
     [selected, setSelected] = useState<Recommendation | null>(null),
     [context, setContext] = useState<Media | null>(null),
+    [managedAction, setManagedAction] = useState<{item: Media; action: MediaAction; season?: number} | null>(null),
     [error, setError] = useState('')
   useEffect(() => {
     let active = true
@@ -2077,20 +2092,11 @@ function SeriesDetailPage({profile}: {profile: Profile | null}) {
               <span className="eyebrow">ÉPISODES</span>
               <h3>Saison {season}</h3>
             </div>
-            <label>
-              Saison
-              <select data-focus value={season} onChange={(event) => setSeason(Number(event.target.value))}>
-                {series.seasons.map((value) => (
-                  <option value={value} key={value}>
-                    Saison {value}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <div className="season-management"><label>Saison<select data-focus value={season} onChange={(event) => setSeason(Number(event.target.value))}>{series.seasons.map((value) => <option value={value} key={value}>Saison {value}</option>)}</select></label><div><button data-focus onClick={() => episodes[0] && setManagedAction({item: episodes[0], action: 'hide', season})}><EyeOff/> Masquer la saison</button><button data-focus className="danger" onClick={() => episodes[0] && setManagedAction({item: episodes[0], action: 'delete', season})}><Trash2/> Supprimer la saison</button></div></div>
           </div>
           <div className="episode-list">
             {episodes.map((episode, index) => (
-              <LocalMediaCard item={episode} id={index === 0 ? 'episode-first' : undefined} key={episode.id} className="episode-row" onActivate={() => nav(`/watch/${episode.id}`)} onLongPress={setContext}>
+              <div className="episode-management-row" key={episode.id}><LocalMediaCard item={episode} id={index === 0 ? 'episode-first' : undefined} className="episode-row" onActivate={() => nav(`/watch/${episode.id}`)} onLongPress={setContext}>
                 <span className="episode-number">{String(episode.episode || index + 1).padStart(2, '0')}</span>
                 <span className="episode-copy">
                   <b>{episode.title}</b>
@@ -2100,13 +2106,14 @@ function SeriesDetailPage({profile}: {profile: Profile | null}) {
                 </span>
                 <WatchStatus item={episode} episode />
                 <Play />
-              </LocalMediaCard>
+              </LocalMediaCard><div className="episode-file-actions"><button data-focus aria-label={`Masquer ${episode.title}`} title="Masquer l’épisode" onClick={() => setManagedAction({item: episode, action: 'hide'})}><EyeOff/></button><button data-focus className="danger" aria-label={`Supprimer ${episode.title}`} title="Supprimer l’épisode" onClick={() => setManagedAction({item: episode, action: 'delete'})}><Trash2/></button></div></div>
             ))}
           </div>
         </section>
         {related.length > 0 && <RecommendationRow title="Vous aimerez aussi" icon={<Sparkles />} items={related} onSelect={setSelected} />}
       </div>
-      {selected && <RecommendationDetails item={selected} profileId={profile?.id} onClose={() => setSelected(null)} />} {context && <MediaContextMenu item={context} onClose={() => setContext(null)} />}
+      {selected && <RecommendationDetails item={selected} profileId={profile?.id} onClose={() => setSelected(null)} />} {context && <MediaContextMenu item={context} onClose={() => setContext(null)} onSuccess={() => nav('/series', {replace: true})} />}
+      {managedAction && <MediaContextMenu item={managedAction.item} seriesTitle={managedAction.season !== undefined ? series.title : undefined} season={managedAction.season} initialAction={managedAction.action} onClose={() => setManagedAction(null)} onSuccess={() => nav('/series', {replace: true})} />}
     </section>
   )
 }

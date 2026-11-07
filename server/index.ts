@@ -12,6 +12,7 @@ import { z } from 'zod'
 import { db, getSetting, setSetting } from './db.js'
 import { detectDrives, isLibraryScanRunning, scanDrive, scanLibraries, type ScanProgress } from './scanner.js'
 import { addTorrent, listTorrents, searchTorznab, testQbit, testTorznab } from './torrents.js'
+import { startCompletedTorrentMonitor } from './torrent-importer.js'
 import { remoteEvents, startCecBridge } from './cec.js'
 import { applyUpdate, checkForUpdate, isUpdateRunning } from './updater.js'
 import { artworkDir, testOmdb } from './omdb.js'
@@ -121,6 +122,8 @@ app.get('/api/series', (req, res) => {
 })
 app.put('/api/series/visibility',(req,res,next)=>{try{const {title,hidden}=z.object({title:z.string().trim().min(1),hidden:z.boolean()}).parse(req.body);const result=db.prepare(`UPDATE media SET hidden=? WHERE kind='series' AND path IS NOT NULL AND COALESCE(series_title,title)=? COLLATE NOCASE`).run(Number(hidden),title);if(!result.changes)return res.status(404).json({error:'Série locale introuvable'});res.json({ok:true,hidden,count:result.changes})}catch(error){next(error)}})
 app.delete('/api/series/files',async(req,res,next)=>{try{const {title}=z.object({title:z.string().trim().min(1),confirm:z.literal(true)}).parse(req.body);const items=db.prepare(`SELECT id,path FROM media WHERE kind='series' AND path IS NOT NULL AND COALESCE(series_title,title)=? COLLATE NOCASE`).all(title) as {id:number;path:string}[];if(!items.length)return res.status(404).json({error:'Série locale introuvable'});for(const item of items){if(fs.existsSync(item.path))await fs.promises.unlink(item.path);db.transaction(()=>{db.prepare('DELETE FROM ratings WHERE media_id=?').run(item.id);db.prepare('DELETE FROM progress WHERE media_id=?').run(item.id);db.prepare('DELETE FROM media WHERE id=?').run(item.id)})()}res.json({ok:true,count:items.length})}catch(error){next(error)}})
+app.put('/api/series/season/visibility',(req,res,next)=>{try{const {title,season,hidden}=z.object({title:z.string().trim().min(1),season:z.number().int().positive(),hidden:z.boolean()}).parse(req.body);const result=db.prepare(`UPDATE media SET hidden=? WHERE kind='series' AND path IS NOT NULL AND COALESCE(series_title,title)=? COLLATE NOCASE AND COALESCE(season,1)=?`).run(Number(hidden),title,season);if(!result.changes)return res.status(404).json({error:'Saison locale introuvable'});res.json({ok:true,hidden,count:result.changes})}catch(error){next(error)}})
+app.delete('/api/series/season/files',async(req,res,next)=>{try{const {title,season}=z.object({title:z.string().trim().min(1),season:z.number().int().positive(),confirm:z.literal(true)}).parse(req.body);const items=db.prepare(`SELECT id,path FROM media WHERE kind='series' AND path IS NOT NULL AND COALESCE(series_title,title)=? COLLATE NOCASE AND COALESCE(season,1)=?`).all(title,season) as {id:number;path:string}[];if(!items.length)return res.status(404).json({error:'Saison locale introuvable'});for(const item of items){if(fs.existsSync(item.path))await fs.promises.unlink(item.path);db.transaction(()=>{db.prepare('DELETE FROM ratings WHERE media_id=?').run(item.id);db.prepare('DELETE FROM progress WHERE media_id=?').run(item.id);db.prepare('DELETE FROM media WHERE id=?').run(item.id)})()}res.json({ok:true,count:items.length})}catch(error){next(error)}})
 app.get('/api/media/:id', (req, res) => {
   const row = db.prepare('SELECT * FROM media WHERE id=?').get(req.params.id)
   if (!row) return res.status(404).json({ error: 'Média introuvable' })
@@ -353,3 +356,4 @@ app.use((error: any, _req: express.Request, res: express.Response, _next: expres
 app.listen(port, '0.0.0.0', () => console.log(`MoodFlix · http://0.0.0.0:${port}`))
 
 startCecBridge()
+startCompletedTorrentMonitor()

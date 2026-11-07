@@ -154,6 +154,13 @@ export async function scanLibraries(extraDirs:string[]=[]){
   return scanDirectories([...new Set([...configured,...extraDirs])],true)
 }
 
+export async function scanDownloadedContent(contentPath:string){
+  const resolved=path.resolve(contentPath)
+  const stat=await fs.promises.stat(resolved)
+  const directory=stat.isDirectory()?resolved:path.dirname(resolved)
+  return scanDirectories([directory],false)
+}
+
 export async function scanDrive(device:string,onProgress?:(progress:ScanProgress)=>void){
   if(scanRunning)throw new Error('Une analyse de la médiathèque est déjà en cours.')
   scanRunning=true
