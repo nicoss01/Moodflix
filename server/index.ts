@@ -171,13 +171,14 @@ async function firstAudioCodec(file:string){
 app.get('/api/media/:id/stream', async (req, res) => {
   const item = db.prepare('SELECT path FROM media WHERE id=?').get(req.params.id) as { path?: string } | undefined
   if (!item?.path || !fs.existsSync(item.path)) return res.status(404).json({ error: 'Fichier indisponible' })
-  const codec=await firstAudioCodec(item.path)
-  if(!codec||['aac','mp3','opus','vorbis','flac'].includes(codec))return streamMediaFile(req,res,item.path)
+  const codec=await firstAudioCodec(item.path),start=Math.max(0,Number(req.query.start)||0)
+  const browserAudio=['aac','mp3','opus','vorbis','flac'].includes(codec)
+  if(start<.5&&(!codec||browserAudio))return streamMediaFile(req,res,item.path)
 
-  // Chromium ne décode généralement pas AC3/E-AC3/DTS. La vidéo reste intacte et
-  // seul l'audio est converti en AAC stéréo, ce qui reste léger sur Raspberry Pi.
-  res.status(200).set({'Content-Type':'video/mp4','Cache-Control':'no-store','X-MoodFlix-Audio':'transcoded'})
-  const ffmpeg=spawn('ffmpeg',['-hide_banner','-loglevel','error','-i',item.path,'-map','0:v:0','-map','0:a:0?','-sn','-dn','-c:v','copy','-c:a','aac','-ac','2','-b:a','192k','-movflags','frag_keyframe+empty_moov+default_base_moof','-f','mp4','pipe:1'],{stdio:['ignore','pipe','pipe']})
+  // FFmpeg démarre directement au timecode demandé. Cela rend la reprise et le
+  // déplacement fiables même pour les pistes AC3/E-AC3/DTS non décodées par Chromium.
+  res.status(200).set({'Content-Type':'video/mp4','Cache-Control':'no-store','X-MoodFlix-Audio':'transcoded','X-MoodFlix-Start':String(start)})
+  const ffmpeg=spawn('ffmpeg',['-hide_banner','-loglevel','error',...(start>=.5?['-ss',String(start)]:[]),'-i',item.path,'-map','0:v:0','-map','0:a:0?','-sn','-dn','-c:v','copy','-c:a','aac','-ac','2','-b:a','192k','-avoid_negative_ts','make_zero','-movflags','frag_keyframe+empty_moov+default_base_moof','-f','mp4','pipe:1'],{stdio:['ignore','pipe','pipe']})
   ffmpeg.stdout.pipe(res)
   ffmpeg.stderr.on('data',chunk=>console.error(`[ffmpeg audio] ${String(chunk).trim()}`))
   ffmpeg.on('error',error=>{console.error('[ffmpeg audio]',error);if(!res.headersSent)res.status(500).end()})
